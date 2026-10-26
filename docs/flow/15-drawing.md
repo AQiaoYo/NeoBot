@@ -3,7 +3,7 @@ flow: 15-drawing
 covers:
   - app/src/neobot_app/drawing/
 verified_against: 802eb41
-verified_hash: 819ca47689bb
+verified_hash: a18c2af73df3
 ---
 
 # 15 绘画子系统：提交判据 · 参考图接口分派 · 落盘清理 · 通知回执

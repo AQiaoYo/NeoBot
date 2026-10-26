@@ -210,6 +210,26 @@ async def test_publish_mirrors_before_starting_background_reply():
 
 
 @pytest.mark.asyncio
+
+
+@pytest.mark.asyncio
+async def test_notification_can_opt_out_of_message_queue_mirror():
+    """一次性动作通知（绘图结果）不镜像，避免后续轮次看到旧通知重复回复。"""
+    orchestrator = _RecordingOrchestrator()
+    hub = BackgroundNotificationHub(orchestrator=orchestrator)
+
+    await hub.publish(
+        source="drawing",
+        kind="group",
+        conversation_id="888888",
+        content="绘图完成",
+        metadata={"mirror": False},
+    )
+
+    assert orchestrator.records == []
+    assert hub._queues["group:888888"].qsize() == 1
+
+
 async def test_mirror_failure_does_not_break_delivery():
     """队列侧写失败绝不能影响通知的既有投递。"""
 

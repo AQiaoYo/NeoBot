@@ -383,9 +383,7 @@ class BackgroundDrawingManager:
                     "text": "不要在未询问用户的情况下自动重新提交绘图",
                 },
             ]
-        actions: list[dict[str, Any]] = [
-            {"action": "reply_to_user", "text": "告知用户绘图已完成"}
-        ]
+        actions: list[dict[str, Any]] = []
         file_path = str((task.record_payload or {}).get("file_path") or "")
         if file_path:
             send_args: dict[str, Any] = {"file_path": file_path}
@@ -393,6 +391,8 @@ class BackgroundDrawingManager:
                 send_args["group_id"] = task.conversation_id
             elif task.conversation_id:
                 send_args["user_id"] = task.conversation_id
+            # 图片必须排在最前：send_reply 会结束本轮，若先回复，后续 image_send
+            # 根本不会再执行（用户只看到「画好了」但没收到图）。
             actions.append(
                 {
                     "action": "send_image",
@@ -409,7 +409,16 @@ class BackgroundDrawingManager:
                 }
             )
         actions.append(
-            {"action": "note", "text": "不要再重新提交绘图，图片已经生成好了"}
+            {
+                "action": "reply_to_user",
+                "text": "确认图片已发送成功后，再简短告知用户绘图完成；send_reply 会结束本轮，必须先发图",
+            }
+        )
+        actions.append(
+            {
+                "action": "note",
+                "text": "不要再重新提交绘图；未成功发出图片前不要声称已画好/已完成",
+            }
         )
         return actions
 
@@ -435,7 +444,10 @@ class BackgroundDrawingManager:
             task,
             kind="draw_result",
             status="completed",
-            message="绘图完成，图片已生成（这是结果通知，不是新的绘图请求）",
+            message=(
+                "绘图完成，图片已生成。这是结果通知，不是新的绘图请求；"
+                "请先调用 image_send__send_image 把图片发出去，成功后再回复用户"
+            ),
         )
         self._logger.info(
             "推送绘图完成通知",
@@ -660,7 +672,13 @@ class BackgroundDrawingManager:
             content=notification,
             manager_name="background_drawing",
             reasons=["drawing task notification"],
-            metadata={"task_id": task.task_id, "status": task.status},
+            # 绘图结果是一次性动作通知，不镜像进长期 transcript；否则后续轮次会
+            # 再次看到旧通知，模型会重复说「画好了」或在没有新图时触发发送。
+            metadata={
+                "task_id": task.task_id,
+                "status": task.status,
+                "mirror": False,
+            },
             on_consumed=lambda _notification: self._mark_notified(task.pipeline_key),
         )
         return bool(started)

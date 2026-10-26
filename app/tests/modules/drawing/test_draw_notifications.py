@@ -80,6 +80,11 @@ async def test_completed_notification_is_json_with_real_tool_calls():
     assert save["tool"] == "gallery__gallery_add"
     assert save["args"]["image_path"] == "/data/tmp/tmp_9c31af.png"
 
+    # send_image 必须先于 reply_to_user：send_reply 结束本轮，先回复会导致图片永远不发
+    order = [item.get("action") for item in payload["next"]]
+    assert order.index("send_image") < order.index("reply_to_user")
+    assert "未成功发出图片前不要声称" in payload["next"][-1]["text"]
+
 
 @pytest.mark.asyncio
 async def test_private_conversation_uses_user_id():
