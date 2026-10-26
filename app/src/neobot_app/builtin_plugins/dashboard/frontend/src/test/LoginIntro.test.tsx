@@ -20,11 +20,17 @@ let preference: ReturnType<typeof mockReducedEffects>;
 afterEach(() => preference?.restore());
 
 function mountLogin() {
-  return render(
+  const view = render(
     <MemoryRouter>
       <Login />
     </MemoryRouter>,
   );
+  const card = view.container.querySelector<HTMLFormElement>('.login-card');
+  if (!card) throw new Error('登录表单未挂载');
+  // jsdom 没有布局，offsetParent 恒为 null。GSAP CSSPlugin 的变换测量会将
+  // 无布局目标临时搬到 documentElement，导致表单内焦点丢失；这里模拟可见表单。
+  vi.spyOn(card, 'offsetParent', 'get').mockImplementation(() => card.parentElement);
+  return view;
 }
 
 describe('登录开场与表单', () => {
@@ -37,7 +43,7 @@ describe('登录开场与表单', () => {
     expect(gsap.getTweensOf(letters).length).toBeGreaterThan(0);
     const input = screen.getByLabelText('面板密码');
     await user.type(input, '输入中的草稿');
-    // 并行运行套件时等待 React 提交最后一次受控输入更新，再检查完整内容。
+    // 等待受控输入提交更新，再检查完整内容与焦点。
     await waitFor(() => expect(input).toHaveValue('输入中的草稿'));
     expect(input).toHaveFocus();
     expect(screen.getByRole('button', { name: '登录工作台' })).toBeEnabled();
@@ -64,6 +70,7 @@ describe('登录开场与表单', () => {
     const input = screen.getByLabelText('面板密码');
     await user.type(input, '尚未提交的内容');
     await waitFor(() => expect(input).toHaveValue('尚未提交的内容'));
+    expect(input).toHaveFocus();
     act(() => preference.set(true));
     expect(input).toHaveValue('尚未提交的内容');
     expect(input).toHaveFocus();
