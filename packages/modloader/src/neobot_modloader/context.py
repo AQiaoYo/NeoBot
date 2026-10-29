@@ -17,6 +17,7 @@ from neobot_modloader.generation import RuntimeGeneration
 from neobot_modloader.loading.models import OFFICIAL_SOURCE, THIRD_PARTY_SOURCE
 from neobot_modloader.management import PluginControlFacade
 from neobot_modloader.message import Message, MessageChain, MessageSegment, normalize_message_payload
+from neobot_modloader.messaging import PluginMessaging
 from neobot_modloader.plugins.agents import PluginAgentRegistrar
 from neobot_modloader.users import UserDirectory
 
@@ -289,7 +290,7 @@ class PluginCommandRegistrar:
         self._renames.clear()
 
 
-class RuntimePluginContext:
+class RuntimePluginContext(PluginMessaging):
     """新 Plugin API 的内部运行时上下文。"""
 
     def __init__(
@@ -318,6 +319,7 @@ class RuntimePluginContext:
         source: str = THIRD_PARTY_SOURCE,
         generation_provider: Any | None = None,
     ) -> None:
+        super().__init__()
         self._plugin_name = plugin_name
         self._source = str(source or THIRD_PARTY_SOURCE)
         self._plugin_dir = plugin_dir

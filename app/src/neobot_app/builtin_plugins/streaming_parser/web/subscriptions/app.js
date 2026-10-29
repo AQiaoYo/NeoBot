@@ -26,6 +26,7 @@
   let reportedHealthError = "";
   let reportedBackgroundError = "";
   const disposers = [];
+  const selectSync = new Map();
   const selection = () => ({
     group_id: Number($("group_id").value),
     target: $("target-input").value.trim(),
@@ -68,6 +69,7 @@
     $("preview-image").disabled = !preview;
     $("preview-text").disabled = !preview;
     if (!context?.available) $("health").textContent = "插件未运行";
+    for (const sync of selectSync.values()) sync();
   }
 
   function showError(error) {
@@ -254,6 +256,7 @@
     if (context.mode === "demo") return;
     if (settingsDirty()) {
       $("group_id").value = String(groupSettings.group_id);
+      selectSync.get($("group_id"))?.();
       void sdk.notify({ title: "先保存或放弃本群设置的修改", tone: "info" });
       return;
     }
@@ -285,6 +288,7 @@
     for (const [id, label] of choices)
       $("list-filter").add(new Option(label, String(id)));
     $("list-filter").value = choices.has(Number(selected)) ? selected : "";
+    selectSync.get($("list-filter"))?.();
   }
 
   function showHealth(health) {
@@ -611,6 +615,7 @@
 
     function sync() {
       trigger.disabled = select.disabled;
+      if (select.disabled) closeMenu();
       const selectedOption =
         select.options[select.selectedIndex] || select.options[0];
       const text = selectedOption ? selectedOption.text : "";
@@ -673,40 +678,8 @@
     };
     wrapper.addEventListener("keydown", onKeyDown);
 
-    const valDescriptor = Object.getOwnPropertyDescriptor(
-      HTMLSelectElement.prototype,
-      "value",
-    );
-    if (valDescriptor) {
-      Object.defineProperty(select, "value", {
-        get() {
-          return valDescriptor.get.call(this);
-        },
-        set(val) {
-          valDescriptor.set.call(this, val);
-          sync();
-        },
-        configurable: true,
-      });
-    }
-
-    const disDescriptor = Object.getOwnPropertyDescriptor(
-      HTMLSelectElement.prototype,
-      "disabled",
-    );
-    if (disDescriptor) {
-      Object.defineProperty(select, "disabled", {
-        get() {
-          return disDescriptor.get.call(this);
-        },
-        set(val) {
-          disDescriptor.set.call(this, val);
-          trigger.disabled = val;
-          if (val) closeMenu();
-        },
-        configurable: true,
-      });
-    }
+    // 原生 select 的属性由 DOM 管理；业务更新后显式同步，避免覆盖平台访问器。
+    selectSync.set(select, sync);
 
     const observer = new MutationObserver(() => sync());
     observer.observe(select, {
@@ -723,6 +696,7 @@
       document.removeEventListener("pointerdown", onPointerDown);
       wrapper.removeEventListener("keydown", onKeyDown);
       observer.disconnect();
+      selectSync.delete(select);
     };
   }
 

@@ -24,6 +24,7 @@ from . import commands, db
 from .assets import AssetCache
 from .bilibili.client import BilibiliLiveClient, HttpxTransport
 from .bilibili.errors import BilibiliAPIError, BilibiliTransportError
+from .chat_guide import register_chat_guide
 from .config import StreamConfig
 from .logs import log_at
 from .notify import Notifier
@@ -291,6 +292,7 @@ state = PluginState()
 
 register_surface(plugin, state)
 register_guide(plugin)
+register_chat_guide(plugin, state)
 
 #: 命令在 on_load 里注册：宿主命令表（ctx.app_commands）要到那时才注入，
 #:  注册进去的命令才会出现在 /help 列表与详情里。

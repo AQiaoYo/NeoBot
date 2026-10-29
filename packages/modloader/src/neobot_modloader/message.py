@@ -142,6 +142,11 @@ class MessageChain:
     def __len__(self) -> int:
         return len(self._segments)
 
+    @property
+    def plain_text(self) -> str:
+        """按原顺序读取文本段，不把图片、@ 或引用转换为命令文本。"""
+        return "".join(segment.text for segment in self._segments)
+
     def __iter__(self) -> Iterator[MessageSegment]:
         return iter(self._segments)
 

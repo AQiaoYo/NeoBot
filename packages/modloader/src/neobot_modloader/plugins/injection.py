@@ -12,6 +12,7 @@ from neobot_contracts.ports.logging import Logger
 
 from neobot_modloader.agent import AgentRequest
 from neobot_modloader.bot import Bot
+from neobot_modloader.events import IncomingEvent
 from neobot_modloader.management import PluginControlFacade
 from neobot_modloader.message import Message, MessageChain
 from neobot_modloader.plugins.registration import Handler
@@ -139,6 +140,7 @@ def _classify_di_annotation(
     ):
         return "config"
     for provider_type, kind in (
+        (IncomingEvent, "incoming_event"),
         (Reply, "reply"),
         (Message, "message"),
         (MessageChain, "message_chain"),
@@ -280,6 +282,8 @@ def _injected_value(
 ) -> tuple[bool, Any]:
     if kind == "context":
         return True, context
+    if kind == "incoming_event":
+        return bool(event), IncomingEvent(dict(event))
     if kind == "reply":
         return True, Reply(context, event)
     if kind == "message":

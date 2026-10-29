@@ -178,12 +178,14 @@ class Plugin:
         block: bool = True,
         timeout: float | None = None,
         parse_error: str = "reply",
+        permission: int | None = None,
+        description: str = "",
     ) -> Callable[[Handler], Handler]:
-        """Register a slash command handler.
+        """注册命令；显式 permission 接入宿主鉴权、帮助和来源管理。
 
-        With ``parse_error="ignore"``, a matching command whose arguments do
-        not parse is treated as unhandled: it neither runs the handler nor
-        applies this registration's block settings.
+        省略 permission 时保留消息模式匹配。该模式下 parse_error="ignore"
+        会跳过参数无效的命令，不执行处理器，也不应用阻断设置。
+        宿主模式由命令服务决定消费语义，参数无效时回复用法。
         """
         compiled = MessagePattern(
             pattern,
@@ -192,6 +194,10 @@ class Plugin:
             prefix=prefix if prefix is not None else self.command_prefix,
         )
         validate_parse_error(parse_error)
+        if permission is not None and (type(permission) is not int or permission not in {0, 1, 2}):
+            raise ValueError("permission 必须是 0、1 或 2")
+        if permission is not None and "command_context" in compiled.capture_names:
+            raise ValueError("command_context 是宿主命令上下文的保留参数")
 
         def decorate(handler: Handler) -> Handler:
             self._registrations.append(
@@ -205,6 +211,8 @@ class Plugin:
                     timeout=timeout,
                     parse_error=parse_error,
                     command_prefix=prefix,
+                    permission=permission,
+                    description=description,
                 )
             )
             return handler
@@ -305,6 +313,42 @@ class Plugin:
                     group=group,
                     private=private,
                     rule=rule,
+                )
+            )
+            return handler
+
+        return decorate
+
+    def event(
+        self,
+        *,
+        post_type: str,
+        notice_type: str | None = None,
+        request_type: str | None = None,
+        rule=None,
+        priority: int = 10,
+        block: bool = False,
+        timeout: float | None = None,
+    ) -> Callable[[Handler], Handler]:
+        """订阅消息、通知或请求事件，支持 IncomingEvent 类型注入。"""
+        if post_type not in {"message", "notice", "request", "meta_event"}:
+            raise ValueError("不支持的 post_type")
+
+        def decorate(handler: Handler) -> Handler:
+            self._registrations.append(
+                HandlerRegistration(
+                    kind="event",
+                    pattern=MessagePattern(),
+                    handler=handler,
+                    priority=priority,
+                    block=block,
+                    block_ai_reply=False,
+                    timeout=timeout,
+                    parse_error="ignore",
+                    rule=rule,
+                    post_type=post_type,
+                    notice_type=notice_type,
+                    request_type=request_type,
                 )
             )
             return handler
@@ -453,6 +497,8 @@ class Plugin:
     async def on_stop(self) -> None:
         errors: list[Exception] = []
         try:
+            if hasattr(self._context, "close_tasks"):
+                await self._context.close_tasks()
             for handler in reversed(self._shutdown_handlers):
                 try:
                     await self._call_lifecycle(handler)
@@ -476,6 +522,8 @@ class Plugin:
         （Windows 上锁住数据库文件，导致重装/升级失败）。同时复位 ``_bound``，
         保证后续重载会重新绑定数据库与处理器。
         """
+        if hasattr(self._context, "close_tasks"):
+            await self._context.close_tasks()
         errors: list[Exception] = []
         for database in self._databases.values():
             try:
@@ -490,6 +538,8 @@ class Plugin:
 
     async def _load(self, context: Any) -> None:
         self._context = context
+        if hasattr(context, "_messaging_closed"):
+            context._messaging_closed = False
         self._config = self.config_model.model_validate(dict(context.config)) if self.config_model is not None else None
         await self._bind_databases()
         if not self._bound:
