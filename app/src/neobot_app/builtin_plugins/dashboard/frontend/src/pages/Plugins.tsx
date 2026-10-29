@@ -14,6 +14,7 @@ import { confirmAction } from '../components/ui/ConfirmDialog';
 import PageHeader from '../components/ui/PageHeader';
 import { isEditingSurfaceActive, useAutoRefresh } from '../hooks/useAutoRefresh';
 import { POLL } from '../data/queryKeys';
+import { setPath } from '../utils/paths';
 
 const statusLabels: Record<string, string> = {
   loaded: '运行中',
@@ -464,21 +465,10 @@ export default function Plugins() {
     setEditorVersion((version) => version + 1);
   }
 
-  function changeField(path: string[], value: unknown) {
+  function changeField(path: Array<string | number>, value: unknown) {
     editGeneration.current++;
     setErrors([]);
-    setDraft((previous) => {
-      const next: Record<string, any> = structuredClone(previous);
-      let target: Record<string, any> = next;
-      for (const key of path.slice(0, -1)) target = target[key as string];
-      Object.defineProperty(target, path[path.length - 1], {
-        value,
-        writable: true,
-        enumerable: true,
-        configurable: true,
-      });
-      return next;
-    });
+    setDraft((previous) => setPath(previous, path, value));
   }
 
   const isConsole = selected?.name === consolePlugin;

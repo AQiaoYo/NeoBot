@@ -4,12 +4,24 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import AliasChoices, AliasPath, BaseModel
 from pydantic.fields import FieldInfo
 
-from neobot_modloader.sdk.schema import model_field_input_paths
-
 _MISSING = object()
+
+
+def _field_input_paths(name: str, field: FieldInfo, *, by_alias: bool, by_name: bool) -> list[list[str | int]]:
+    alias = field.validation_alias if field.validation_alias is not None else field.alias
+    if alias is None:
+        return [[name]]
+    if isinstance(alias, AliasChoices):
+        aliases = alias.convert_to_aliases()
+    elif isinstance(alias, AliasPath):
+        aliases = [alias.convert_to_aliases()]
+    else:
+        aliases = [[alias]]
+    paths = aliases if by_alias else []
+    return [*paths, [name]] if by_name and [name] not in paths else paths
 
 
 def _value_at_input_path(value: Any, path: list[str | int]) -> Any:
@@ -34,13 +46,7 @@ def _submitted_field(
     submitted: dict[str, Any], name: str, field: FieldInfo, *, by_alias: bool, by_name: bool
 ) -> tuple[list[str | int], Any] | None:
     """遵守模型的别名优先级，只选择实际参与校验的输入位置。"""
-    aliased = field.validation_alias is not None or field.alias is not None
-    for path in model_field_input_paths(name, field):
-        canonical = path == [name]
-        if aliased and canonical and not by_name:
-            continue
-        if aliased and not canonical and not by_alias:
-            continue
+    for path in _field_input_paths(name, field, by_alias=by_alias, by_name=by_name):
         value = _value_at_input_path(submitted, path)
         if value is not _MISSING:
             return path, value

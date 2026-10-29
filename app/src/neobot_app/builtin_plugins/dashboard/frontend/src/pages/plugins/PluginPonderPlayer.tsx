@@ -1,5 +1,5 @@
-import { useEffect } from 'react';
-import { ChevronLeft, ChevronRight, Pause, Play, RotateCcw } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ChevronLeft, ChevronRight, List, Pause, Play, RotateCcw } from 'lucide-react';
 import type { PluginGuide, PluginView } from '../../api/types';
 import Button from '../../components/ui/Button';
 import SelectControl from '../../components/ui/SelectControl';
@@ -8,6 +8,7 @@ import { infoBar } from '../../notifications/infoBar';
 import PluginPonderStage from './PluginPonderStage';
 import PluginPonderScreen from './PluginPonderScreen';
 import PluginPonderTimeline from './PluginPonderTimeline';
+import PluginPonderContents from './PluginPonderContents';
 import { usePonderPlayback } from './usePonderPlayback';
 import type { PluginViewSurface } from './pluginViewBridge';
 
@@ -24,14 +25,47 @@ interface Props {
 function PonderLesson({ pluginId, surface, guide, views }: Props) {
   const reducedMotion = useReducedEffects();
   const playback = usePonderPlayback(guide, reducedMotion);
-  const { index, playing, chapters, chapterIndex, seek, next, restart, toggle } = playback;
+  const {
+    index,
+    playing,
+    chapters,
+    chapterIndex,
+    seek: seekStep,
+    next: nextStep,
+    toggle: togglePlayback,
+  } = playback;
+  const [reading, setReading] = useState(false);
+  const contentsButton = useRef<HTMLButtonElement | null>(null);
+  const showStage = useCallback(() => {
+    if (reading) contentsButton.current?.focus();
+    setReading(false);
+  }, [reading]);
+  const seek = useCallback(
+    (position: number) => {
+      showStage();
+      seekStep(position);
+    },
+    [showStage, seekStep],
+  );
+  const next = useCallback(() => {
+    showStage();
+    nextStep();
+  }, [showStage, nextStep]);
+  const toggle = useCallback(() => {
+    showStage();
+    togglePlayback();
+  }, [showStage, togglePlayback]);
+  const restart = () => {
+    showStage();
+    playback.restart();
+  };
   const step = guide.steps[index];
   useEffect(() => {
     infoBar({
       title: '演示使用样例数据',
       message: reducedMotion
         ? '不会发送消息或保存记录。已减少动态效果，请手动切换步骤。'
-        : '不会发送消息或保存真实记录。',
+        : '不会发送消息或保存真实记录。默认手动阅读，也可点击播放连续观看。',
       tone: 'info',
     });
   }, [reducedMotion]);
@@ -85,15 +119,19 @@ function PonderLesson({ pluginId, surface, guide, views }: Props) {
     );
   return (
     <div className="ponder-lesson">
-      <div className="ponder-main">
-        <PluginPonderStage
-          pluginId={pluginId}
-          surface={surface}
-          guide={guide}
-          step={step}
-          views={views}
-          reducedMotion={reducedMotion}
-        />
+      <div className="ponder-main" data-reading={reading || undefined}>
+        {reading ? (
+          <PluginPonderContents guide={guide} index={index} onSelect={seek} />
+        ) : (
+          <PluginPonderStage
+            pluginId={pluginId}
+            surface={surface}
+            guide={guide}
+            step={step}
+            views={views}
+            reducedMotion={reducedMotion}
+          />
+        )}
         <div className="ponder-playback">
           <Button
             size="sm"
@@ -121,19 +159,33 @@ function PonderLesson({ pluginId, surface, guide, views }: Props) {
           <Button size="sm" variant="ghost" aria-label="重新播放" onClick={restart}>
             <RotateCcw size={16} />
           </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            aria-pressed={reading}
+            onClick={(event) => {
+              contentsButton.current = event.currentTarget;
+              playback.pause();
+              setReading(!reading);
+            }}
+          >
+            <List size={16} /> 目录与全文
+          </Button>
         </div>
-        <div className="ponder-caption" aria-live="polite">
-          <div className="ponder-caption-heading">
-            <span>
-              {String(chapterIndex + 1).padStart(2, '0')} / {String(chapters.length).padStart(2, '0')}
-            </span>
-            <strong>{step.chapter || guide.title}</strong>
-            <span className="ponder-position">
-              步骤 {index + 1} / {guide.steps.length}
-            </span>
+        {!reading && (
+          <div className="ponder-caption" aria-live="polite">
+            <div className="ponder-caption-heading">
+              <span>
+                {String(chapterIndex + 1).padStart(2, '0')} / {String(chapters.length).padStart(2, '0')}
+              </span>
+              <strong>{step.chapter || guide.title}</strong>
+              <span className="ponder-position">
+                步骤 {index + 1} / {guide.steps.length}
+              </span>
+            </div>
+            <p>{step.text}</p>
           </div>
-          <p>{step.text}</p>
-        </div>
+        )}
       </div>
       <footer className="ponder-legend" aria-label="思索快捷键">
         <span>

@@ -67,6 +67,12 @@ plugin.guide("settings-use", title="设置页教程", steps=[
     {"target": "view.settings.value", "text": "在数值设置中填写数值并保存。", "chapter": "填写数值", "example": {"value": 17}},
     {"target": "view.settings.value", "text": "读取已保存的数值，确认结果。", "chapter": "核对结果", "example": {"value": 17}},
 ], demo={"actions": {"set": {"value": 17}, "list": [{"value": 17}]}})
+plugin.guide("reading", title="长篇阅读", steps=[
+    {"target": "config.greeting", "chapter": f"章节 {index + 1}",
+     "text": f"第 {index + 1} 步说明。" + "核对配置后再返回真实页面操作。" * 12,
+     "command": {"text": f"/核对 {index + 1}", "context": "机器人私聊", "reply": "合成结果"}}
+    for index in range(14)
+])
 """
 
 
@@ -219,7 +225,7 @@ async def test_installed_plugin_manual_keeps_configuration_and_never_runs_action
             # 保留旧 action/resource 契约的说明能力，但不恢复真实通用表单。
             caption = dialog.locator(".ponder-caption")
             await expect(caption).to_contain_text("填写数值并保存。")
-            await dialog.get_by_role("button", name="暂停演示", exact=True).click()
+            await expect(dialog.get_by_role("button", name="播放演示", exact=True)).to_be_visible()
             bounds = await dialog.bounding_box()
             assert bounds is not None
             assert abs(bounds["x"]) <= 1 and abs(bounds["y"]) <= 1
@@ -355,7 +361,7 @@ async def test_installed_plugin_setting_group_runs_live_and_suspends_during_manu
             demo = dialog.frame_locator('iframe[title="数值设置"]')
             await expect(demo.locator("body")).to_have_attribute("data-mode", "demo")
             await expect(demo.locator("output")).to_have_text("17")
-            await dialog.get_by_role("button", name="暂停演示", exact=True).click()
+            await expect(dialog.get_by_role("button", name="播放演示", exact=True)).to_be_visible()
             await dialog.get_by_role("button", name="02 核对结果", exact=True).click()
             await dialog.get_by_role("button", name="下一步演示", exact=True).click()
             await _expect_notice_above_dialog(page, "本篇说明已播放完")
@@ -409,5 +415,59 @@ async def test_installed_plugin_setting_group_runs_live_and_suspends_during_manu
             assert plugin.action_calls == readonly_calls
             assert posts == readonly_posts
             await page.screenshot(path=str(tmp_path / "plugin-settings.png"), full_page=True)
+        finally:
+            await browser.close()
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize("color_scheme", ["light", "dark"])
+@pytest.mark.parametrize("viewport", [(1366, 768), (1920, 1080), (390, 844), (390, 560)])
+async def test_manual_contents_search_and_return_remain_reachable(installed_panel, tmp_path, viewport, color_scheme):
+    _server, runtime, base = installed_panel
+    plugin = runtime.manager.get_plugin(_NAME)
+    async with async_playwright() as playwright:
+        browser = await playwright.chromium.launch()
+        try:
+            page = await browser.new_page(
+                viewport={"width": viewport[0], "height": viewport[1]},
+                color_scheme=color_scheme,
+            )
+            await page.goto(base + "/#/login")
+            await page.get_by_label("面板密码", exact=True).fill(_PASSWORD)
+            await page.get_by_role("button", name="登录工作台", exact=True).click()
+            await expect(page).to_have_url(base + "/#/dashboard")
+            await page.goto(base + "/#/plugins")
+            await _select_plugin(page)
+            await page.get_by_role("button", name="使用说明", exact=True).click()
+            dialog = page.get_by_role("dialog", name=f"{_NAME} · 思索说明书")
+            await dialog.get_by_role("combobox", name="选择说明", exact=True).click()
+            await page.get_by_role("option", name="长篇阅读", exact=True).click()
+            await expect(dialog.get_by_role("button", name="播放演示", exact=True)).to_be_visible()
+            await page.get_by_role("button", name="关闭通知", exact=True).click()
+            contents = dialog.get_by_role("button", name="目录与全文", exact=True)
+            await expect(contents).to_be_in_viewport()
+            await contents.click()
+            reader = dialog.get_by_role("region", name="说明目录与全文", exact=True)
+            await expect(reader).to_be_visible()
+            await expect(reader.get_by_role("button")).to_have_count(14)
+            last = reader.get_by_role("button", name="查看第 14 步：章节 14", exact=True)
+            await last.scroll_into_view_if_needed()
+            await expect(last).to_be_in_viewport()
+            search = reader.get_by_role("searchbox", name="搜索说明", exact=True)
+            await search.fill("/核对 14")
+            await expect(reader.get_by_role("button")).to_have_count(1)
+            await expect(reader.get_by_text("/核对 14", exact=True)).to_be_visible()
+            overflow = await dialog.evaluate("node => node.scrollWidth - node.clientWidth")
+            assert overflow <= 1
+            await page.screenshot(path=str(tmp_path / "plugin-manual-contents.png"), full_page=True)
+            await last.click()
+            await expect(reader).to_have_count(0)
+            await expect(contents).to_be_focused()
+            await expect(dialog.locator(".ponder-caption")).to_contain_text("第 14 步说明。")
+            await expect(dialog.get_by_role("button", name="播放演示", exact=True)).to_be_visible()
+            assert plugin.action_calls == []
+            assert plugin.current == 0
+            await dialog.get_by_role("button", name="返回配置", exact=True).click()
+            await expect(dialog).to_have_count(0)
         finally:
             await browser.close()

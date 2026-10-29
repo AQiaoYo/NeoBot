@@ -14,8 +14,8 @@ covers:
   - app/src/neobot_app/runtime/hot_reload_registry.py
   - app/src/neobot_app/runtime/plugin_config_reload.py
   - app/src/neobot_app/bootstrap/_skills.py
-verified_against: 528fe18
-verified_hash: 0dcf364530dc
+verified_against: fb703fe5
+verified_hash: f3b091d722de
 ---
 
 # 08 插件系统：扫描 · 加载 · 启停 · 依赖 · 配置热重载
@@ -38,6 +38,8 @@ verified_hash: 0dcf364530dc
 * `Plugin`（`plugin.py`）的装饰器注册面（命令/工具/Agent/Markdown Skill 绑定）→ 见 06-tools-skills。
 
 **spec 与现实的差异**：实现里**没有文件监听**。全仓没有插件目录 watcher，`reload` 只能由面板按钮 / `plugin_control` 门面 / 插件自身调用触发；`config.reload` 命令只分发**本体**配置（`HotReloadRegistry.apply`），插件配置走 `apply_plugin_config_change` 这条独立通道 —— 两者不互相触发。
+
+插件机器名在注册前统一校验为安全的单个路径组件，不接受工具命名空间分隔符 `__`。清单依赖与代码依赖按加载规则形成同一份有效声明，供全来源启动排序及停用、重载联动使用；不再要求作者把同一依赖重复声明两次。Python 发行包依赖同时检查实际版本与条件声明。
 
 ## 流程
 

@@ -143,9 +143,12 @@ python research/tools/render_samples.py <UID>
 ├── logs.py                # 统一的按级别日志分发（禁止 kwargs 写法）
 ├── bilibili/              # B 站协议层（URL / 请求头 / 判定 / 模型 / 客户端）
 ├── templates/             # 6 个 HTML 模板 + 随包字体（零构建）
+├── web/subscriptions/     # 面板页面与脚本；样式按基础控件、设置、预览、记录拆分
 ├── tests/                 # 单元测试（含模板契约测试）
 └── research/              # 【不入库】协议调研与探针脚本
 ```
+
+订阅页按 `style.css`、`settings.css`、`preview.css`、`records.css` 的顺序加载样式，最后一份包含响应式覆盖。调整文件职责时保持级联顺序，不通过压行绕过文件体积门禁。
 
 ## 测试
 

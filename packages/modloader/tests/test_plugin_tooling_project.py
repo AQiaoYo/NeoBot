@@ -18,6 +18,8 @@ def test_init_creates_a_ready_to_check_project(tmp_path: Path) -> None:
     assert report.ok, report.errors
     assert (path / "__init__.py").is_file()
     assert (path / "tests" / "test_plugin.py").is_file()
+    assert (path / "AGENTS.md").is_file()
+    assert (path / "GUIDE.md").is_file()
     assert check_project(path).ok
     assert export_contract(path, check=True).ok
 
@@ -28,28 +30,32 @@ def test_init_guide_explains_real_configuration_and_ping_command(tmp_path: Path)
     assert report.ok, report.errors
     contract = json.loads((path / "plugin.contract.json").read_text(encoding="utf-8"))
     assert contract["actions"] == []
-    assert contract["guides"] == [
-        {
-            "id": "first-use",
-            "title": "首次使用",
-            "steps": [
-                {
-                    "target": "config.greeting",
-                    "text": "在插件配置中填写回复内容，再保存配置。",
-                    "chapter": "设置回复",
-                    "example": {"greeting": "你好，NeoBot"},
-                },
-                {
-                    "target": "config.greeting",
-                    "text": "回到与机器人的私聊，发送 /ping。机器人会回复刚才保存的文字。",
-                    "chapter": "发送命令验证",
-                    "command": {"text": "/ping", "context": "在与机器人的私聊中发送", "reply": "你好，NeoBot"},
-                },
-            ],
-            "completion_action": None,
-            "demo": {"config": {"greeting": "你好，NeoBot"}},
-        }
+    assert len(contract["guides"]) == 1
+    guide = contract["guides"][0]
+    assert guide["id"] == "first-use"
+    assert guide["title"] == "从零配置并验证"
+    assert guide["completion_action"] is None
+    assert guide["demo"] == {"config": {"greeting": "你好，NeoBot"}}
+    steps = guide["steps"]
+    assert [(step["target"], step.get("form")) for step in steps] == [
+        ("config", "start"),
+        ("config.greeting", "edit"),
+        ("config", "validate"),
+        ("config", "save"),
+        ("config", "saved"),
+        ("config.greeting", None),
     ]
+    assert steps[0]["example"] == {"greeting": "pong"}
+    assert all(step["example"] == {"greeting": "你好，NeoBot"} for step in steps[1:5])
+    assert all(step["chapter"] and step["text"] for step in steps)
+    assert "不会发送真实保存请求" in steps[3]["text"]
+    assert "重载" in steps[4]["text"]
+    assert steps[-1]["command"] == {
+        "text": "/ping",
+        "context": "在与机器人的私聊中发送",
+        "reply": "你好，NeoBot",
+    }
+    assert "/help" in steps[-1]["text"]
     metadata = tomllib.loads((path / "plugin.toml").read_text(encoding="utf-8"))
     assert metadata["python_dependencies"] == ["pydantic>=2,<3"]
 
@@ -77,6 +83,59 @@ def test_generated_business_test_runs_against_real_dispatch(tmp_path: Path) -> N
     )
     assert completed.returncode == 0, completed.stdout + completed.stderr
     assert "1 passed" in completed.stdout
+
+
+async def test_generated_command_runs_through_host_help_and_collision_handling(tmp_path: Path) -> None:
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from neobot_app.commands.model import Command
+    from neobot_app.commands.registry import CommandRegistry
+    from neobot_app.commands.service import CommandService
+    from neobot_modloader.context import RuntimePluginContext
+    from neobot_modloader.loader import FilesystemPluginLoader
+
+    path = tmp_path / "hello"
+    assert init_project(path, "hello").ok
+    registry = CommandRegistry()
+    registry.register(Command(name="ping", description="宿主占位", handler=AsyncMock()))
+    adapter = SimpleNamespace(self_id=10001, send=AsyncMock())
+    loader = FilesystemPluginLoader()
+    loaded = loader.load_one(path)
+    context = RuntimePluginContext(
+        plugin_name="hello",
+        plugin_dir=path,
+        data_dir=tmp_path / "data",
+        config={"greeting": "新回复"},
+        logger=None,
+        adapter=adapter,
+        app_commands=registry,
+    )
+    service = CommandService(
+        config=SimpleNamespace(
+            bot=SimpleNamespace(account=10001),
+            chat=SimpleNamespace(admin_accounts=[], sub_admin_accounts=[]),
+        ),
+        registry=registry,
+        send_callback=AsyncMock(),
+        register_builtins=False,
+    )
+    try:
+        await loaded.plugin.on_load(context)
+        await loaded.plugin.on_start()
+        command = registry.match("/hello__ping")[0]
+        assert command.permission == 0
+        assert "[来源: hello]" in command.help_line
+        assert "发送配置中的回复内容" in command.help_line
+        message = SimpleNamespace(user_id=42, message=[{"type": "text", "data": {"text": "/hello__ping"}}])
+        result = await service.handle_message(message, kind="private", queue_key="42")
+        assert result.consumed
+        assert adapter.send.await_args.args[1] == "新回复"
+    finally:
+        context.app_commands.unregister_all()
+        await loaded.plugin.on_stop()
+        loader.clear_module_cache(loaded.module_names)
+    assert registry.match("/hello__ping")[0] is None
 
 
 def test_static_check_does_not_execute_plugin_code(tmp_path: Path) -> None:

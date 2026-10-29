@@ -40,7 +40,7 @@ export function sampleField(
   const schema = fieldSchema(root, field.path);
   const sensitive =
     field.sensitive === true ||
-    SECRET_RE.test(field.path.at(-1) ?? field.name) ||
+    SECRET_RE.test(String(field.path.at(-1) ?? field.name)) ||
     schema.writeOnly === true ||
     schema.format === 'password';
   const descriptor: FieldDescriptor = {
@@ -111,10 +111,10 @@ export function sampleField(
 /** 插件尚未加载时，仍用公开契约生成同一套 SchemaForm 控件。 */
 export function schemaFields(root: JsonSchema | null): FieldDescriptor[] {
   if (root === null) return [];
-  const build = (raw: JsonSchema, path: string[], ancestors: JsonSchema[]): FieldDescriptor => {
+  const build = (raw: JsonSchema, path: Array<string | number>, ancestors: JsonSchema[]): FieldDescriptor => {
     const resolved = resolveSchema(raw, root);
     const schema = typeof resolved === 'object' ? resolved : {};
-    const name = path.at(-1)!;
+    const name = String(path.at(-1));
     const descriptor: FieldDescriptor = {
       name,
       path,
@@ -169,7 +169,7 @@ export function sampleValues(fields: FieldDescriptor[]): Record<string, unknown>
   return fields.reduce((values, field) => setPath(values, field.path, field.value), {});
 }
 
-function fieldSchema(root: JsonSchema | null, path: string[]): Exclude<JsonSchema, boolean> {
+function fieldSchema(root: JsonSchema | null, path: Array<string | number>): Exclude<JsonSchema, boolean> {
   if (root === null) return {};
   let field: JsonSchema = root;
   for (const part of path) {
@@ -177,7 +177,7 @@ function fieldSchema(root: JsonSchema | null, path: string[]): Exclude<JsonSchem
     if (typeof parent !== 'object') return {};
     if (parent.type === 'array' && parent.items && !Array.isArray(parent.items)) {
       field = parent.items;
-      if (/^\d+$/.test(part)) continue;
+      if (/^\d+$/.test(String(part))) continue;
       parent = resolveSchema(field, root);
       if (typeof parent !== 'object') return {};
     }

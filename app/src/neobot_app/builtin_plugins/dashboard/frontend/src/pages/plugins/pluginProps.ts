@@ -78,6 +78,6 @@ export interface PluginEditorPanelProps extends PluginActionHandlers {
   onBack: () => void;
   onModeChange: (mode: 'form' | 'toml') => void;
   onSourceChange: (value: string) => void;
-  onChangeField: (path: string[], value: unknown) => void;
+  onChangeField: (path: Array<string | number>, value: unknown) => void;
   onRetryRead: () => void;
 }

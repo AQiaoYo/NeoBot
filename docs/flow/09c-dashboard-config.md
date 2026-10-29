@@ -11,8 +11,8 @@ covers:
   - app/src/neobot_app/config/chat_writer.py
   - app/src/neobot_app/config/hot_reload.py
   - app/src/neobot_app/config/loader/backup.py
-verified_against: 264696d
-verified_hash: 75d9d9abbbc4
+verified_against: fb703fe5
+verified_hash: 84ecc77b2eb7
 ---
 
 # 09c 面板配置编辑：三条写入通道 · diff 与掩码 · 前端编辑器数据流
@@ -37,6 +37,8 @@ verified_hash: 75d9d9abbbc4
 类型回填按模型实际接受的别名优先级定位提交值，保留原输入路径和未知字段；RootModel、映射和序列分别处理。字段描述通过 pydantic_fields 递归映射枚举、嵌套分组、对象列表与字典，保留枚举原始类型和敏感字段只写语义；不能无损展开的结构使用 JSON。旧插件未采用 Pydantic 时仍使用配置文件生成描述。思索配置章节复用字段描述，并按样例重建所有嵌套值和列表，不能复用真实配置行。
 
 思索仅作为说明书，读取明确的样例和静态教程，不调用真实插件动作或配置保存；说明书打开与关闭均不替换原配置输入节点或草稿。
+
+首次打开说明默认手动阅读，连播由使用者明确启动；目录与全文只过滤同一份教程声明，不增加配置查询。选中步骤后恢复舞台和目录按钮焦点，真实配置及隐藏页面仍按原编辑会话暂停和恢复。
 
 使用说明入口直接打开思索，不增加跟做流程。「配置」提供固定自动表单与 TOML，「插件页面」承载独立 sandbox iframe；隐藏页保留输入并暂停，配置草稿未处理时阻止真实业务。真实页面与说明书样例使用不同桥接会话，共用 `_ui.css` 组件样式和 SDK 主题同步。配置项恢复默认使用输入旁图标；当前值等于默认值时隐藏，未保存标记仍按保存基线比较。配置章节复用同一套字段控件，聊天章节提供真实命令及使用场景，反馈统一走全局 InfoBar。
 
@@ -64,7 +66,7 @@ schema 分层、`Config.load` 全链路、版本迁移、`.env` 逐字段解析�
    真话只在保存响应的 `message` / `changes` 里。
 5. **`dashboard.manage_plugins` / `allow_remote_manage` 声明「需重启」，实际立即生效**：
    `server.py:217 _live_config()` 每次访问都按 mtime 读一遍插件配置文件。
-6. **插件页每 20 s 轮询一次列表，列表数组换新会触发配置重读**，未保存草稿被静默覆盖。
+6. **插件列表轮询与配置编辑会话分离**：同一插件的设置和说明共用查询缓存；焦点、草稿、非法 JSON 和在途保存保护编辑基线，列表后台更新不能静默覆盖输入。
 
 ## 流程
 

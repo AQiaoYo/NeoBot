@@ -56,7 +56,7 @@ export interface FieldDescriptor {
   name: string;
   /** 开发者声明的显示名称；缺省时使用存储字段名。 */
   label?: string;
-  path: string[];
+  path: Array<string | number>;
   kind: FieldKind;
   /** 读取时的当前值（后端快照，编辑草稿以 values 为准） */
   value?: unknown;

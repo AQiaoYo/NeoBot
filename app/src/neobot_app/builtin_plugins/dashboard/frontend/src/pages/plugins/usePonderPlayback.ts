@@ -5,14 +5,19 @@ import { infoBar } from '../../notifications/infoBar';
 /** 字幕停留时间与进度条共用时钟；暂停、后台隐藏都保留剩余时长。 */
 export function usePonderPlayback(guide: PluginGuide, reducedMotion: boolean) {
   const [stepIndex, setIndex] = useState(0);
-  const [playing, setPlaying] = useState(!reducedMotion);
+  const [playing, setPlaying] = useState(false);
   const [ended, setEnded] = useState(false);
   const [replay, setReplay] = useState(0);
   const [visible, setVisible] = useState(!document.hidden);
   const elapsed = useRef(0);
   const index = Math.min(stepIndex, Math.max(0, guide.steps.length - 1));
-  const text = guide.steps[index]?.text;
-  const duration = Math.max(3500, Math.min(8000, (text?.length ?? 0) * 80));
+  const step = guide.steps[index];
+  const text = step?.text;
+  const readingLength = [text, step?.command?.text, step?.command?.context, step?.command?.reply].reduce(
+    (length, value) => length + (value?.length ?? 0),
+    0,
+  );
+  const duration = Math.max(3500, Math.min(30000, readingLength * 80));
   const active = playing && visible && text !== undefined;
   const chapters = guide.steps.reduce<Array<{ title: string; index: number }>>((items, step, position) => {
     const title = step.chapter || guide.title;
@@ -47,6 +52,7 @@ export function usePonderPlayback(guide: PluginGuide, reducedMotion: boolean) {
     }
     setPlaying((value) => !value);
   };
+  const pause = () => setPlaying(false);
   useEffect(() => {
     elapsed.current = 0;
   }, [index, replay, text]);
@@ -86,5 +92,6 @@ export function usePonderPlayback(guide: PluginGuide, reducedMotion: boolean) {
     next,
     restart,
     toggle,
+    pause,
   };
 }

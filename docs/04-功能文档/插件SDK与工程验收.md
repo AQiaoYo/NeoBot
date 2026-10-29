@@ -4,16 +4,22 @@ NeoBot 插件 SDK 提供配置、动作、资源和说明书声明，并配套�
 
 ## 创建并检查第一个工程
 
-在 NeoBot 仓库根目录，使用已同步依赖的开发环境：
+准备 Python 3.13 或 3.14、uv 和包含 SDK 的 NeoBot 源码仓库。在仓库根目录运行；插件与 NeoBot 同级放置，后续可按生成 README 继续操作：
 
 ```powershell
-uv run python -m neobot_modloader.sdk init tmp/hello_plugin --name hello_plugin
-uv run python -m neobot_modloader.sdk check tmp/hello_plugin
-uv run python -m neobot_modloader.sdk export tmp/hello_plugin --check
-uv run python scripts/plugin_ci.py tmp/hello_plugin --output-dir tmp/hello_plugin_acceptance
+uv sync --all-packages --locked
+uv run --no-sync python -m neobot_modloader.sdk init ../hello_plugin --name hello_plugin
+uv run --no-sync python -m neobot_modloader.sdk check ../hello_plugin
+uv run --no-sync python -m neobot_modloader.sdk export ../hello_plugin --check
+uv run --no-sync python scripts/plugin_ci.py ../hello_plugin --output-dir tmp/hello_plugin_acceptance
+uv run --no-sync python scripts/plugin_demo.py --sample ../hello_plugin --port 19981
 ```
 
-`init` 要求目标目录不存在。生成的入口包含 `/ping`、可配置的回复文字、对应配置和聊天命令的使用说明，以及命令回复测试。更改声明后执行 `export`，再检查生成的契约差异。
+`init` 要求目标目录不存在。生成的 `/ping` 显式声明所有人权限和中文帮助，接入宿主命令表；配置模型同时供自动表单与命令注入使用。说明书包含完整表单流程和可复制命令，业务测试通过合成宿主端口实际执行 SDK 注册与回复处理。更改声明后执行 `export`，再检查生成的契约差异。
+
+验收命令退出码为 0、`report.json` 中 `ok=true` 且生成最终 ZIP，表示离线工程验收通过。最后一条命令启动隔离面板：使用终端给出的地址和密码登录，在插件列表选择 `hello_plugin`，打开“配置表单”或“使用说明”。面板不提供聊天发送入口，离线 `/ping` 由前面的业务测试验证；演示不会连接真实 QQ，也不能证明外部平台联调成功。
+
+需要真实使用时，把插件工程放入实际部署的 `plugins.dir`（默认 `plugins/`），重启宿主并确认插件正在运行。保存配置后查看生效通知，在机器人私聊通过 `/help` 核对实际命令名，再发送 `/ping` 检查回复；重名时宿主会使用带插件名前缀的名称，群聊还需要 @机器人。
 
 静态检查先校验 Schema 遍历需要的对象、列表和正则表达式，再检查公开默认值与教程引用。声明写错时，`check --json` 返回带字段位置的失败报告，不执行插件入口，也不把默认值写进错误信息。
 
@@ -26,8 +32,15 @@ uv run python scripts/plugin_ci.py tmp/hello_plugin --output-dir tmp/hello_plugi
 | `plugin.contract.json` | 可公开的静态契约 | 通过 `export` 生成，修改后检查差异 |
 | `tests/` | 离线业务测试 | 真实业务断言，外部服务使用合成数据 |
 | `pyproject.toml` | 工程工具配置 | 模板已配置异步 pytest |
+| `README.md` | 第一次成功路线和故障恢复 | 环境、离线面板、真实安装与验证结果 |
+| `AGENTS.md` | 开发助手可直接读取的约定 | API 选择、权限、数据边界、验证和交付要求 |
+| `GUIDE.md` | 当前教程目标和编写方法 | 按配置、动作和页面更新目标及完整样例 |
 
 用户配置保存在宿主的 `plugins_data/<name>/config.toml`，不写进插件代码目录。包内默认值与用户保存值由宿主合并，重载与回滚按实际插件代恢复。
+
+嵌套模型和对象列表沿用模型实际验证的输入别名与优先级，表单读取、编辑和保存使用同一路径。`alias`、`validation_alias`、`AliasChoices` 和 `AliasPath` 不会被强制改成 Python 字段名；序列下标保持为数值，凭据继续按模型元数据脱敏。
+
+找不到 SDK 或 pytest 时，先完成环境同步并使用上述 `uv run --no-sync`；从插件目录运行则显式加 `--project <NeoBot目录>`，不要误用另一份 Python 环境。契约过期时重新导出并查看差异；教程目标失效时按报错字段更新引用；其他失败查看报告的 `errors` 和对应阶段日志，修正后重跑，不跳过失败用例。
 
 ## SDK 契约与说明书素材
 
@@ -76,7 +89,9 @@ uv run python scripts/plugin_ci.py tmp/hello_plugin --output-dir tmp/hello_plugi
 
 ## 思索说明书
 
-思索进入覆盖整个应用的教程舞台，顶部提供说明选择与“返回配置”，画面下方集中分章时间线、播放控制和字幕。点击章节段切章，点击当前章的落点回看步骤；键盘左右键回看、方括号切章、空格播放或暂停、Esc 返回。重播从当前章开始，暂停和隐藏页面保留剩余播放时间；减少动态效果时默认手动切换。业务动作、权限与持久化由 NeoBot 宿主负责。
+思索进入覆盖整个应用的教程舞台，顶部提供说明选择与“返回配置”，画面下方集中分章时间线、播放控制和字幕。首次打开默认手动阅读，点击播放才连续推进；连播时间同时考虑说明、命令和使用场景，长内容不再统一截在 8 秒。点击章节段切章，点击当前章的落点回看步骤；键盘左右键回看、方括号切章、空格播放或暂停、Esc 返回。重播从当前章开始，暂停和隐藏页面保留剩余播放时间；减少动态效果时重播也保持手动切换。业务动作、权限与持久化由 NeoBot 宿主负责。
+
+“目录与全文”在舞台区域展示全部步骤、场景和命令，可搜索章节、正文或命令。打开时暂停连播，点击步骤返回对应演示并保持暂停，焦点回到目录按钮；搜索输入使用自己的键盘操作。它只读取同一份合成教程，不访问真实配置或执行动作。
 
 教程作者仍然声明 `target/text`，可增加 `chapter` 和有限 JSON `example`。聊天步骤增加 `command={text, context, reply?}`，展示可复制的真实命令和使用场景，可选回复必须明确是样例。该元数据不注册或执行命令；静态检查验证结构和目标引用，作者业务回归还必须验证命令可达性。`guide.demo` 明确提供演示动作结果和配置：
 
@@ -190,6 +205,10 @@ uv run python -m neobot_modloader.sdk upgrade plugin.zip --name my_board --plugi
 ```
 
 工具需要取得操作系统数据租约，不能用一个 `offline=true` 参数假装宿主已经停止。迁移先在备份副本执行，再切换代码与数据，按实际宿主版本检查兼容性并验证启动。迁移失败不改现有目录；候选启动写入后失败也恢复旧代码、配置与 SQLite 数据。运行时所有插件卸载后释放租约，进程退出也会释放。
+
+声明前置插件时，工具先检查旧版与候选的依赖闭包、版本和启用状态，再迁移数据。启动验收只导入并按顺序启动目标及其前置，不导入无关插件；候选和回滚使用同一组来源。第三方前置从 `--plugin-dir` 查找；官方前置必须额外用 `--builtin-dir <官方插件目录>` 指定，多个来源可重复传入。官方身份优先，第三方同名副本不能接管。缺少前置或依赖成环时在切换前退出。
+
+维护验收会执行受信任插件及前置的生命周期，使用模拟消息适配器，仍须提供它们所需的宿主能力和正确配置。备份和自动回滚只覆盖本次升级目标；前置启动可能写入自身数据，维护前应备份关联数据。真实服务和在线升级不属于这项验收。
 
 这是停止宿主后的维护流程。成功提交并开始处理实际业务后，不自动用旧备份覆盖新业务数据，也没有宣称支持无停机迁移。备份位置、恢复情况和未验证范围写入报告。
 

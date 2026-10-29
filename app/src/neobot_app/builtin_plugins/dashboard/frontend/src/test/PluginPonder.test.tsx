@@ -69,7 +69,22 @@ describe('思索说明书播放器', () => {
     expect(stage).not.toHaveClass('modal');
     expect(screen.getByRole('navigation', { name: '思索章节' })).toHaveClass('ponder-timeline');
     expect(screen.getByRole('button', { name: '返回配置' })).toBeVisible();
-    expect(screen.getByRole('button', { name: '暂停演示' })).toHaveFocus();
+    expect(screen.getByRole('button', { name: '播放演示' })).toHaveFocus();
+  });
+
+  it('首次打开默认手动阅读，不随时间自动跳走', async () => {
+    vi.useFakeTimers();
+    try {
+      render(<PluginPonderPlayer {...props()} />);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(30000);
+      });
+      expect(caption('先填写一个数字。')).toBeVisible();
+      expect(screen.getByRole('button', { name: '播放演示' })).toBeVisible();
+      expect(api.pluginAction).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('键盘回看和切章暂停在目标，空格恢复播放，组合键不触发跳转', () => {
@@ -104,6 +119,7 @@ describe('思索说明书播放器', () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date', 'performance'] });
     try {
       render(<PluginPonderPlayer {...props()} />);
+      fireEvent.click(screen.getByRole('button', { name: '播放演示' }));
       await act(async () => {
         await vi.advanceTimersByTimeAsync(2000);
       });
@@ -166,6 +182,7 @@ describe('思索说明书播放器', () => {
     vi.useFakeTimers();
     try {
       render(<PluginPonderPlayer {...props()} />);
+      fireEvent.click(screen.getByRole('button', { name: '播放演示' }));
       fireEvent.click(screen.getByRole('button', { name: '暂停演示' }));
       await act(async () => {
         await vi.advanceTimersByTimeAsync(9000);
@@ -209,6 +226,7 @@ describe('思索说明书播放器', () => {
       const guide = structuredClone(value.guide);
       guide.steps[0].text = '请先填写数字。'.repeat(10);
       const view = render(<PluginPonderPlayer {...value} guide={guide} />);
+      fireEvent.click(screen.getByRole('button', { name: '播放演示' }));
       await act(async () => {
         await vi.advanceTimersByTimeAsync(4000);
       });
@@ -228,6 +246,70 @@ describe('思索说明书播放器', () => {
       expect(infoBar).toHaveBeenLastCalledWith(
         expect.objectContaining({ title: expect.stringMatching(/播放.*(完|结束)/) }),
       );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('目录可阅读全文、搜索命令并回到对应步骤，打开目录暂停播放且不调用真实接口', () => {
+    const value = props();
+    const guide = {
+      ...value.guide,
+      steps: [
+        value.guide.steps[0],
+        {
+          ...value.guide.steps[1],
+          command: { text: '/核对 17', context: '在机器人私聊中发送', reply: '17' },
+        },
+      ],
+    };
+    render(<PluginPonderPlayer {...value} guide={guide} />);
+    fireEvent.click(screen.getByRole('button', { name: '播放演示' }));
+    const contents = screen.getByRole('button', { name: '目录与全文' });
+    fireEvent.click(contents);
+    expect(contents).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: '播放演示' })).toBeVisible();
+    expect(screen.getByRole('region', { name: '说明目录与全文' })).toBeVisible();
+    expect(screen.getByText('先填写一个数字。')).toBeVisible();
+    expect(screen.getByText('确认后再保存。')).toBeVisible();
+    const search = screen.getByRole('searchbox', { name: '搜索说明' });
+    fireEvent.change(search, { target: { value: '不存在' } });
+    expect(screen.getByText('没有匹配的说明，请换个关键词。')).toBeVisible();
+    fireEvent.change(search, { target: { value: '/核对' } });
+    expect(screen.queryByText('先填写一个数字。')).not.toBeInTheDocument();
+    expect(screen.getByText('/核对 17')).toBeVisible();
+    fireEvent.keyDown(search, { key: 'ArrowLeft' });
+    expect(screen.getByRole('region', { name: '说明目录与全文' })).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: '查看第 2 步：保存记录' }));
+    expect(caption('确认后再保存。')).toBeVisible();
+    expect(screen.queryByRole('region', { name: '说明目录与全文' })).not.toBeInTheDocument();
+    expect(contents).toHaveFocus();
+    expect(screen.getAllByRole('dialog')).toHaveLength(1);
+    expect(api.pluginAction).not.toHaveBeenCalled();
+    expect(api.pluginConfigSave).not.toHaveBeenCalled();
+  });
+
+  it('连播为长说明及命令场景保留阅读时间，不再八秒强制切换', async () => {
+    vi.useFakeTimers();
+    try {
+      const value = props();
+      const guide = {
+        ...value.guide,
+        steps: [
+          { ...value.guide.steps[0], command: { text: '/ping', context: '请先核对目标聊天。'.repeat(15) } },
+          value.guide.steps[1],
+        ],
+      };
+      render(<PluginPonderPlayer {...value} guide={guide} />);
+      fireEvent.click(screen.getByRole('button', { name: '播放演示' }));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(9000);
+      });
+      expect(caption('先填写一个数字。')).toBeVisible();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10000);
+      });
+      expect(caption('确认后再保存。')).toBeVisible();
     } finally {
       vi.useRealTimers();
     }

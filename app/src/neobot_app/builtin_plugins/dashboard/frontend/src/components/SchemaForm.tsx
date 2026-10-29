@@ -41,7 +41,7 @@ export default function SchemaForm({
     walk(fields);
     return paths;
   }, [fields]);
-  const restore = (path: string[], value: unknown) => {
+  const restore = (path: Array<string | number>, value: unknown) => {
     if (!disabled && !readonlyPaths.has(pathKey(path))) onRestore?.(path, value);
   };
 

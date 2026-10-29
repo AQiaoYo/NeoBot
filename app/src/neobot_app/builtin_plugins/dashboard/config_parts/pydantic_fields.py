@@ -7,6 +7,7 @@ from pydantic import BaseModel, SecretBytes, SecretStr
 from pydantic.fields import FieldInfo
 from pydantic_core import PydanticUndefined
 
+from .normalize import _MISSING, _field_input_paths, _submitted_field, _value_at_input_path
 from .schema import _inner_types, _jsonable, _type_name
 from .secret_values import PluginSecretPolicy
 
@@ -65,20 +66,45 @@ def _constraints(field: FieldInfo) -> dict[str, Any]:
     return result
 
 
+def _form_input_path(values: Any, path: list[str | int]) -> list[str | int]:
+    result = []
+    for part in path:
+        index = int(part) if isinstance(part, int) else part
+        if isinstance(part, int) and part < 0 and isinstance(values, list) and len(values) >= -part:
+            index = len(values) + part
+        result.append(index)
+        values = _value_at_input_path(values, [part])
+    return result
+
+
 class _DescriptorBuilder:
     def __init__(self) -> None:
         self.policies: dict[type[BaseModel], PluginSecretPolicy] = {}
 
     def fields(
-        self, model: type[BaseModel], values: Any, path: tuple[str, ...], seen: frozenset[type]
+        self, model: type[BaseModel], values: Any, path: tuple[str | int, ...], seen: frozenset[type]
     ) -> list[dict[str, Any]]:
         data = _jsonable(values) if values is not None else {}
         data = data if isinstance(data, dict) else {}
         if model not in self.policies:
             self.policies[model] = PluginSecretPolicy(model)
         policy = self.policies[model]
+        config = model.model_config
+        by_alias = config.get("validate_by_alias", True)
+        by_name = config.get("validate_by_name", config.get("populate_by_name", False))
         return [
-            self.field(name, field, data, path, seen | {model}, policy) for name, field in model.model_fields.items()
+            self.field(
+                name,
+                field,
+                data,
+                path,
+                seen | {model},
+                policy,
+                input_paths=_field_input_paths(name, field, by_alias=by_alias, by_name=by_name),
+                selected=_submitted_field(data, name, field, by_alias=by_alias, by_name=by_name),
+                model_value=getattr(values, name, _MISSING) if isinstance(values, BaseModel) else _MISSING,
+            )
+            for name, field in model.model_fields.items()
         ]
 
     def field(
@@ -86,19 +112,27 @@ class _DescriptorBuilder:
         name: str,
         field: FieldInfo,
         values: dict[str, Any],
-        path: tuple[str, ...],
+        path: tuple[str | int, ...],
         seen: frozenset[type],
         policy: PluginSecretPolicy,
+        *,
+        input_paths: list[list[str | int]],
+        selected: tuple[list[str | int], Any] | None,
+        model_value: Any,
     ) -> dict[str, Any]:
         default = field.get_default(call_default_factory=True)
         if default is PydanticUndefined:
             default = None
-        value = values.get(name, default)
+        input_path, value = selected if selected is not None else (input_paths[0], default)
+        if selected is None and model_value is not _MISSING:
+            value = model_value
+        # JSON 中的数组下标保留整数；负别名下标转为当前行位置，供表单准确写回。
+        form_path = _form_input_path(values, input_path)
         extra = field.json_schema_extra if isinstance(field.json_schema_extra, dict) else {}
         target = _target(field.annotation)
         descriptor: dict[str, Any] = {
             "name": name,
-            "path": [*path, name],
+            "path": [*path, *form_path],
             "label": field.title or name,
             "description": field.description or "",
             "required": field.is_required(),
@@ -124,7 +158,7 @@ class _DescriptorBuilder:
         options = _options(target)
         if options is not None:
             return self.enum(descriptor, options, extra)
-        field_path = (*path, name)
+        field_path = (*path, *form_path)
         if _model(target) and target not in seen:
             descriptor.update(kind="group", type="model", fields=self.fields(target, value, field_path, seen))
             return descriptor
@@ -161,7 +195,7 @@ class _DescriptorBuilder:
         descriptor: dict[str, Any],
         annotation: Any,
         value: Any,
-        path: tuple[str, ...],
+        path: tuple[str | int, ...],
         seen: frozenset[type],
     ) -> dict[str, Any]:
         arguments = get_args(annotation)

@@ -19,7 +19,7 @@ function findField(fields: FieldDescriptor[], path: string): FieldDescriptor | u
   }
 }
 
-function fieldSchema(root: JsonSchema | null, path: string[]): JsonSchema | null {
+function fieldSchema(root: JsonSchema | null, path: Array<string | number>): JsonSchema | null {
   if (root === null) return null;
   let field: JsonSchema = root;
   for (const key of path) {

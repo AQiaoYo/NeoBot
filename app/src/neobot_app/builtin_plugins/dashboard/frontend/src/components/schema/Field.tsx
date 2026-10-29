@@ -6,6 +6,7 @@ import { fieldMatches } from './searchHit';
 import { resolveFieldComponent } from './fieldRegistry';
 import { pathKey, type FieldProps } from './fieldTypes';
 import type { FieldDescriptor } from '../../api/types';
+import { setPath } from '../../utils/paths';
 
 function retainsCollectionDraft(field: FieldDescriptor): boolean {
   if (field.kind === 'scalar') return false;
@@ -111,11 +112,7 @@ export default function Field(props: FieldProps) {
                 onChange={(next) => {
                   if (locked) return;
                   const path = field.path.slice(descriptor.path.length);
-                  const node: Record<string, any> = structuredClone(descriptor.value ?? {});
-                  let cursor: Record<string, any> = node;
-                  for (const key of path.slice(0, -1)) cursor = cursor[key as string];
-                  cursor[path[path.length - 1] as string] = next;
-                  onChange(node);
+                  onChange(setPath(descriptor.value ?? {}, path, next));
                 }}
               />
             ))}

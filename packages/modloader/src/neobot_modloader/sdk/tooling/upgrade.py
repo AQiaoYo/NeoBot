@@ -7,6 +7,7 @@ import hashlib
 import shutil
 import tempfile
 import uuid
+from contextlib import ExitStack
 from dataclasses import dataclass
 from importlib.metadata import version
 from pathlib import Path
@@ -23,6 +24,7 @@ from neobot_modloader.sdk.storage import StorageLease, StorageVersion, read_stor
 from .models import ToolingError, ToolReport
 from .smoke import _Adapter, _LoggerFactory, _close_runtime
 from .validation import check_project
+from .upgrade_host import upgrade_host_plan
 
 
 @dataclass(frozen=True)
@@ -58,38 +60,54 @@ def _copy_data(source: Path, target: Path) -> None:
     shutil.copytree(source, target)
 
 
-async def _verify(plugin_dir: Path, data_root: Path, name: str, lease: StorageLease) -> None:
-    runtime = PluginRuntime(
+def _runtime(plugin_dir: Path, data_root: Path, builtin_dirs: tuple[Path, ...]) -> PluginRuntime:
+    return PluginRuntime(
         plugin_dir=plugin_dir,
         data_dir=data_root,
+        builtin_plugin_dirs=builtin_dirs,
         adapter=_Adapter(),
         logger_factory=_LoggerFactory(),
         host_version=version("neobot-modloader"),
     )
+
+
+async def _verify(
+    plugin_dir: Path, data_root: Path, name: str, lease: StorageLease, builtin_dirs: tuple[Path, ...] = ()
+) -> None:
+    runtime = _runtime(plugin_dir, data_root, builtin_dirs)
     runtime._storage_leases[name] = lease
-    try:
-        result = await runtime.load_plugin_path(plugin_dir / name)
-        record = runtime.manager.get_record(name)
-        if not result.ok or record is None or record.state is not PluginState.RUNNING or record.error is not None:
-            raise ToolingError(f"新版本启动验收失败: {result.error or result.state}")
-        if runtime.plugin_config_error(name):
-            raise ToolingError("迁移后的配置未通过插件模型校验")
-    finally:
-        # 外层维护事务持有租约，子运行时清理不得把它提前释放。
-        runtime._storage_leases.pop(name, None)
-        cleanup = asyncio.create_task(_close_runtime(runtime))
+    with ExitStack() as plans:
         try:
-            await asyncio.shield(cleanup)
-        except asyncio.CancelledError:
-            await asyncio.shield(cleanup)
-            raise
+            plan = plans.enter_context(upgrade_host_plan(runtime, plugin_dir / name, name))
+            for entry in plan:
+                result = await runtime._activate_loaded_plugin(entry, start=True, auto_install_dependencies=False)
+                record = runtime.manager.get_record(entry.name)
+                if (
+                    not result.ok
+                    or record is None
+                    or record.state is not PluginState.RUNNING
+                    or record.error is not None
+                ):
+                    raise ToolingError(f"新版本启动验收失败 ({entry.name}): {result.error or result.state}")
+                if runtime.plugin_config_error(entry.name):
+                    raise ToolingError(f"迁移后的配置未通过插件模型校验: {entry.name}")
+        finally:
+            # 外层维护事务持有租约；先停插件，再清除仍可能被卸载钩子导入的模块。
+            runtime._storage_leases.pop(name, None)
+            cleanup = asyncio.create_task(_close_runtime(runtime))
+            try:
+                await asyncio.shield(cleanup)
+            except asyncio.CancelledError:
+                await asyncio.shield(cleanup)
+                raise
 
 
 class _Upgrade:
-    def __init__(self, plugin_root: Path, data_root: Path, name: str) -> None:
+    def __init__(self, plugin_root: Path, data_root: Path, name: str, builtin_dirs: tuple[Path, ...]) -> None:
         self.plugin_root = plugin_root
         self.data_root = data_root
         self.name = name
+        self.builtin_dirs = builtin_dirs
         self.code = _owned(plugin_root, name)
         self.data = _owned(data_root, name)
         transaction = name + "-" + uuid.uuid4().hex
@@ -110,7 +128,7 @@ class _Upgrade:
             if self.code.exists():
                 self.code.rename(self.code_backup.with_name("failed-code"))
             self.code_backup.rename(self.code)
-            await _verify(self.plugin_root, self.data_root, self.name, lease)
+            await _verify(self.plugin_root, self.data_root, self.name, lease, self.builtin_dirs)
         self.restored = True
         self.checks.append("rollback")
 
@@ -151,7 +169,7 @@ class _Upgrade:
             staged_data.rename(self.data)
             self.data_swapped = True
             self.checks.append("switch")
-            await _verify(self.plugin_root, self.data_root, self.name, lease)
+            await _verify(self.plugin_root, self.data_root, self.name, lease, self.builtin_dirs)
             self.checks.append("start")
         except BaseException:
             task = asyncio.create_task(self.restore(lease))
@@ -171,6 +189,12 @@ class _Upgrade:
         self.checks.append("maintenance_lease")
         with tempfile.TemporaryDirectory(prefix=".upgrade-code-", dir=self.plugin_root.parent) as code_tmp:
             candidate = await self._prepare_candidate(Path(code_tmp), archive)
+            runtime = _runtime(self.plugin_root, self.data_root, self.builtin_dirs)
+            with upgrade_host_plan(runtime, self.code, self.name):
+                pass
+            with upgrade_host_plan(runtime, candidate.path, self.name):
+                pass
+            self.checks.append("dependencies")
             with tempfile.TemporaryDirectory(prefix=".upgrade-data-", dir=self.data_root.parent) as data_tmp:
                 staged_data = Path(data_tmp) / self.name
                 await self._stage_data(candidate, staged_data, previous)
@@ -179,7 +203,13 @@ class _Upgrade:
 
 
 async def upgrade_package(
-    path: Path, *, plugin_dir: Path, data_dir: Path, name: str, timeout: float = 30.0
+    path: Path,
+    *,
+    plugin_dir: Path,
+    data_dir: Path,
+    name: str,
+    timeout: float = 30.0,
+    builtin_plugin_dirs: tuple[Path, ...] = (),
 ) -> UpgradeReport:
     """宿主退出后执行；启动验证使用模拟适配器，不承诺在线无中断升级。"""
     checks: tuple[str, ...] = ()
@@ -203,7 +233,7 @@ async def upgrade_package(
         if data_root.is_relative_to(plugin_root):
             raise ToolingError("配置与业务数据必须位于插件代码目录外")
         data_root.mkdir(parents=True, exist_ok=True)
-        upgrade = _Upgrade(plugin_root, data_root, name)
+        upgrade = _Upgrade(plugin_root, data_root, name, tuple(Path(item).resolve() for item in builtin_plugin_dirs))
         with StorageLease(data_root, name) as lease:
             async with asyncio.timeout(timeout):
                 await upgrade.run(archive, lease)
