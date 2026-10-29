@@ -3,6 +3,21 @@
 
 export type { Result, SeriesPoint, SeriesPayload } from './types/common';
 export type {
+  JsonSchema,
+  PluginPermission,
+  PluginAction,
+  PluginResource,
+  PluginGuide,
+  PluginGuideStep,
+  PluginGuideDemo,
+  PluginView,
+  PluginSurfaceContract,
+  PluginSurfacePayload,
+  PluginActionPayload,
+  PluginSettingsGroup,
+  PluginSettingsField,
+} from './types/pluginSurface';
+export type {
   DeployStep,
   OneBotConnection,
   DeployStatus,

@@ -73,7 +73,7 @@ function ModelList({
         >
           <Icon name="chevron" />
         </button>
-        <h3>{descriptor.name}</h3>
+        <h3>{descriptor.label || descriptor.name}</h3>
         {descriptor.readonly && <span className="cfg-readonly">只读</span>}
         <span>{list.length} 项</span>
         <span className="cfg-badges">

@@ -8,8 +8,23 @@ covers:
   - packages/modloader/src/neobot_modloader/config_store.py
   - packages/modloader/src/neobot_modloader/config_validation.py
   - packages/modloader/src/neobot_modloader/plugins/dispatch.py
+  - packages/modloader/src/neobot_modloader/plugins/injection.py
+  - packages/modloader/src/neobot_modloader/plugin.py
+  - packages/modloader/src/neobot_modloader/context.py
+  - packages/modloader/src/neobot_modloader/bot.py
+  - packages/modloader/src/neobot_modloader/message.py
+  - packages/modloader/src/neobot_modloader/sdk/
+  - scripts/plugin_ci.py
+  - scripts/plugin_ci_support.py
+  - scripts/plugin_ci_process.py
+  - scripts/plugin_ci_pytest.py
+  - scripts/plugin_registry.py
+  - scripts/plugin_compat.py
+  - scripts/plugin_ecosystem.py
+  - scripts/plugin_demo.py
+  - scripts/plugin_demo/
 verified_against: 528fe18
-verified_hash: bea7db57d3b9
+verified_hash: 9813ce90dad9
 ---
 
 # 08b 插件运行时：门面动作矩阵 · 热重载回滚 · 安装器 · 钩子总线
@@ -24,6 +39,34 @@ verified_hash: bea7db57d3b9
 * `management.py`：`PluginOperationResult` / `PluginSnapshot` / `PluginControlFacade`（面板与插件看到的窄门面）；
 * `config_store.py` + `config_validation.py`：`plugin.toml` 的 `[config]` 打底 + `plugins_data/<name>/config.toml` 覆盖 + 校验回落；
 * `plugins/dispatch.py`：`Plugin.command/message/...` 装饰器到钩子总线订阅的桥。
+* `sdk/`：模型契约、动作/资源/教程/页面、运行代绑定，以及插件工程生成、确定性 ZIP、安装、存储租约与维护期升级工具；详见[插件 SDK 与工程验收](../04-功能文档/插件SDK与工程验收.md)。
+
+统一动作通过 `control.invoke_action` 在插件名字锁内定位当前就绪记录，绑定其实际上下文后校验身份、权限、输入和输出。
+停用插件只读取包内静态契约，不执行入口。发送入口在 `Bot` 与上下文统一归一化，消息链可按段查询并保留未知段。
+
+静态契约先统一校验 Schema 子节点容器与正则表达式，再进行默认值脱敏和字段引用检查。畸形声明返回字段位置诊断，`check --json` 仍输出结构化失败报告；内部遍历不重复添加同类兜底。
+
+教程步骤可以增加 `command={text, context, reply?}`，声明与静态契约共用结构校验并深拷贝导出。它只描述实际聊天入口，不注册或代发命令；目标引用仍必须对应现有字段、动作、资源或页面锚点，命令可达性由作者业务用例验证。内置生成器提供配置和 `/ping` 的示例。
+
+插件工程检查、打包与维护期升级按以下流程执行。升级需要退出宿主并取得操作系统租约，只有带存储声明的插件适用。
+
+```mermaid
+flowchart LR
+    T[插件模板] --> I[init 独占创建新工程]
+    I --> C[静态声明与资源引用检查]
+    C --> E[导出契约比较与真实业务 suite]
+    E --> Z[两次构建摘要一致]
+    Z --> S[输入 ZIP 安装启停重载]
+    S --> R[本地候选绑定源码树与包摘要]
+    R --> A[受控重测重建并再次验收输入 ZIP]
+    Z --> U[退出宿主取得存储租约]
+    U --> B[备份代码与数据后在副本迁移]
+    B --> V[按实际宿主版本激活候选]
+    V -->|成功| OK[保留业务数据与备份]
+    V -->|失败| BACK[恢复旧代码配置和数据库并验证旧版]
+```
+
+Windows 新建工程采用验证后独占创建与复制，避免只读文件句柄阻止整目录改名；不会覆盖已有目标。维护升级不承诺无停机或强杀断电后的自动事务续作。迁移失败、候选启动写入后失败、最低宿主版本不符与在线租约冲突均有实际回归。
 
 **分工（与 08-plugins.md 不重叠）**：
 
@@ -212,7 +255,9 @@ flowchart TD
 * `_restore_old_generation`：用 `manager.register(old_record.plugin, old_record.context)` 重新注册；旧状态是 RUNNING 就 `load_plugin` 后视情况 `start_plugin`，是 LOADED 就只 `load_plugin`，**其余状态直接把 `state/error/stop_failed` 写回记录**（不跑生命周期）。
 * 失败文本只有两种形态：`插件新版本激活失败: ...; 已恢复旧版本` 或 `...; 旧版本回滚失败: ...`；`ok` 恒为 False，`state` 取恢复后的实时状态。
 * 取消（`asyncio.CancelledError`）也走回滚：先回滚再 `raise`，回滚错误只记日志。
-* 成功时不恢复依赖方会留下半死状态，所以 `_cascade_restore_dependents` 只在 `ok=True` 时调用。
+* 新代成功后恢复依赖方；新代失败但旧代恢复就绪时也要恢复依赖方，取消操作同样先恢复再传播取消。
+* `_auto_disabled` 保存全部前置名称，按依赖拓扑恢复多前置和传递依赖，恢复失败写进结果，不能冒充整体成功。
+* 包内默认配置按插件代更新缓存；候选代失败恢复旧缓存，卸载清理缓存，避免重载后沿用旧清单默认值。
 
 </details>
 

@@ -1,5 +1,5 @@
 // pages/plugins/PluginEditorPanel.tsx —— 插件编辑器（工具条 / 详情 / 配置体 / 页脚）
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { api } from '../../api/endpoints';
 import Icon from '../../components/Icon';
 import Button from '../../components/ui/Button';
@@ -12,11 +12,20 @@ import TomlEditor from '../../components/TomlEditor';
 import type { PluginEditorPanelProps } from './pluginProps';
 import { confirmAction } from '../../components/ui/ConfirmDialog';
 import { useAuthGate } from '../../auth/AuthContext';
+import PluginManualEntry from './PluginManualEntry';
+import { bindValues } from '../config/shared';
+import PluginSettingsViews from './PluginSettingsViews';
+import PluginDeclaredSettings from './PluginDeclaredSettings';
+import { usePluginSurface } from './usePluginSurface';
+import { usePluginSettingsAccess } from './usePluginSettingsAccess';
+import { infoBar } from '../../notifications/infoBar';
 
 export default function PluginEditorPanel(props: PluginEditorPanelProps) {
   const { canManage: sessionCanManage } = useAuthGate();
   const sessionReadOnly = sessionCanManage === false;
   const [infoOpen, setInfoOpen] = useState(false);
+  const [manualPlugin, setManualPlugin] = useState('');
+  const editorRoot = useRef<HTMLElement>(null);
   const {
     selected,
     selectedPresent,
@@ -33,6 +42,7 @@ export default function PluginEditorPanel(props: PluginEditorPanelProps) {
     loading,
     operation,
     dirty,
+    editingSession = false,
     isConsole,
     canEdit: editorAvailable,
     canSave: saveAvailable,
@@ -54,8 +64,28 @@ export default function PluginEditorPanel(props: PluginEditorPanelProps) {
   const canSave = !sessionReadOnly && saveAvailable;
   const canReload = !sessionReadOnly && reloadAvailable;
   const canManage = !sessionReadOnly && manageAvailable;
+  const surface = usePluginSurface(selectedPresent ? selectedId : '');
+  const canWriteSettings = sessionCanManage === true && permissions.manage_enabled && selectedPresent;
+  const { run, configAccess } = usePluginSettingsAccess({
+    pluginId: selectedId,
+    canWrite: canWriteSettings,
+    blocked: loading || dirty || editingSession,
+    act,
+    applyDocument,
+  });
+  const navigateSetting = (target: string) => {
+    if (!target.startsWith('config.')) return;
+    const id = 'cfg-' + target.slice('config.'.length).split('.').map(encodeURIComponent).join('-');
+    const field = editorRoot.current?.querySelector<HTMLElement>(`#${CSS.escape(id)}`);
+    if (!field) {
+      infoBar({ title: '当前无法定位该配置项', message: '请切换到配置表单后查看。', tone: 'info' });
+      return;
+    }
+    field.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    field.focus({ preventScroll: true });
+  };
   return (
-    <section className="workspace-editor" aria-label="在线配置">
+    <section className="workspace-editor" aria-label="在线配置" ref={editorRoot}>
       <div className="plugin-editor-body">
         <header className="plugin-editor-toolbar">
           <button className="icon-btn plugin-back" aria-label="返回插件列表" onClick={onBack}>
@@ -78,6 +108,45 @@ export default function PluginEditorPanel(props: PluginEditorPanelProps) {
               </div>
             )}
           </div>
+          {selected && (
+            <div className="plugin-config-toolbar">
+              <div className="plugin-mode-tabs" role="tablist" aria-label="配置编辑方式">
+                <button
+                  role="tab"
+                  aria-selected={mode === 'form'}
+                  className={mode === 'form' ? 'active' : ''}
+                  disabled={!configDocument?.form_supported || !!operation}
+                  onClick={() => onModeChange('form')}
+                >
+                  <Icon name="settings" size={15} />
+                  配置表单
+                </button>
+                <button
+                  role="tab"
+                  aria-selected={mode === 'toml'}
+                  className={mode === 'toml' ? 'active' : ''}
+                  disabled={!configDocument?.source_available || !!operation}
+                  onClick={() => onModeChange('toml')}
+                >
+                  <Icon name="code" size={15} />
+                  TOML
+                </button>
+              </div>
+              <div className="plugin-config-tools">
+                {selectedPresent && (
+                  <PluginManualEntry
+                    pluginId={selectedId}
+                    configFields={configDocument?.schema}
+                    onOpenChange={(open) => setManualPlugin(open ? selectedId : '')}
+                  />
+                )}
+                <Button size="sm" variant="ghost" onClick={() => setInfoOpen(true)}>
+                  插件信息
+                  <Icon name="chevron" size={14} />
+                </Button>
+              </div>
+            </div>
+          )}
           <div className="plugin-toolbar-actions" role="group" aria-label="插件操作">
             <Button
               size="sm"
@@ -242,38 +311,42 @@ export default function PluginEditorPanel(props: PluginEditorPanelProps) {
                 当前编辑内容已保留，恢复插件后再保存。
               </InlineAlert>
             )}
-            <div className="plugin-config-toolbar">
-              <div className="plugin-mode-tabs" role="tablist" aria-label="配置编辑方式">
-                <button
-                  role="tab"
-                  aria-selected={mode === 'form'}
-                  className={mode === 'form' ? 'active' : ''}
-                  disabled={!configDocument?.form_supported || !!operation}
-                  onClick={() => onModeChange('form')}
-                >
-                  <Icon name="settings" size={15} />
-                  配置表单
-                </button>
-                <button
-                  role="tab"
-                  aria-selected={mode === 'toml'}
-                  className={mode === 'toml' ? 'active' : ''}
-                  disabled={!configDocument?.source_available || !!operation}
-                  onClick={() => onModeChange('toml')}
-                >
-                  <Icon name="code" size={15} />
-                  TOML
-                </button>
-              </div>
-              <Button size="sm" variant="ghost" onClick={() => setInfoOpen(true)}>
-                插件信息
-                <Icon name="chevron" size={14} />
-              </Button>
-            </div>
             <div
               className={'workspace-scroll plugin-editor-scroll' + (mode === 'toml' ? ' is-source' : '')}
               key={selectedId}
             >
+              {mode === 'form' && surface.data?.contract && selectedPresent && (
+                <PluginDeclaredSettings
+                  key={`settings:${selectedId}`}
+                  surface={{
+                    ...surface.data,
+                    contract: surface.data.contract,
+                    available: surface.data.available && selected.status === 'loaded',
+                    permissions: surface.data.permissions.filter(
+                      (permission) => permission === 'read' || canWriteSettings,
+                    ),
+                  }}
+                  run={run}
+                  suspended={manualPlugin === selectedId || loading || dirty || editingSession}
+                />
+              )}
+              {mode === 'form' && surface.data?.contract && selectedPresent && (
+                <PluginSettingsViews
+                  pluginId={selectedId}
+                  surface={{
+                    ...surface.data,
+                    contract: surface.data.contract,
+                    available: surface.data.available && selected.status === 'loaded',
+                    permissions: surface.data.permissions.filter(
+                      (permission) => permission === 'read' || canWriteSettings,
+                    ),
+                  }}
+                  run={run}
+                  configAccess={configAccess}
+                  suspended={manualPlugin === selectedId || loading || dirty || editingSession}
+                  onNavigate={navigateSetting}
+                />
+              )}
               {!permissions.manage_enabled ? (
                 <EmptyState icon="settings" title="当前为只读模式">
                   <p>
@@ -345,12 +418,13 @@ export default function PluginEditorPanel(props: PluginEditorPanelProps) {
                         {mode === 'form' ? (
                           <SchemaForm
                             key={`${selectedId}-${editorVersion}`}
-                            fields={configDocument.schema || []}
+                            fields={bindValues(configDocument.schema || [], draft)}
                             showReloadSummary={false}
                             values={draft}
                             baseline={configDocument.config || {}}
                             disabled={!canEdit || !!operation}
                             onChange={onChangeField}
+                            onRestore={onChangeField}
                           />
                         ) : (
                           <TomlEditor
@@ -406,53 +480,65 @@ export default function PluginEditorPanel(props: PluginEditorPanelProps) {
             <div className="plugin-info-content">
               <p className="plugin-info-description">{selected.description || '暂无插件说明。'}</p>
               <dl className="plugin-info-grid">
-                <dt>来源 / 版本</dt>
-                <dd>
-                  {selected.official ? '官方插件' : '第三方插件'} · v{selected.version || '—'}
-                </dd>
+                <div className="plugin-info-item">
+                  <dt>来源 / 版本</dt>
+                  <dd>
+                    {selected.official ? '官方插件' : '第三方插件'} · v{selected.version || '—'}
+                  </dd>
+                </div>
                 {selected.author && (
-                  <>
+                  <div className="plugin-info-item">
                     <dt>作者</dt>
                     <dd>{selected.author}</dd>
-                  </>
+                  </div>
                 )}
-                <dt>插件更新</dt>
-                <dd>
-                  {selected.official
-                    ? '随 NeoBot 本体更新'
-                    : selected.repo
-                      ? '在更多操作中检查或更新插件'
-                      : '此插件未提供更新仓库'}
-                </dd>
-                <dt>重载能力</dt>
-                <dd>
-                  {selected.hot_reload === false ? '插件本体需重启' : '插件本体可热重载'}；
-                  {selected.config_hot_reload === false ? '配置改动需重启' : '配置改动可热重载'}
-                </dd>
-                <dt>配置文件</dt>
-                <dd>
-                  <code>{configDocument?.path || 'plugins_data/' + selected.name + '/config.toml'}</code>
-                </dd>
+                <div className="plugin-info-item">
+                  <dt>插件更新</dt>
+                  <dd>
+                    {selected.official
+                      ? '随 NeoBot 本体更新'
+                      : selected.repo
+                        ? '在更多操作中检查或更新插件'
+                        : '此插件未提供更新仓库'}
+                  </dd>
+                </div>
+                <div className="plugin-info-item">
+                  <dt>重载能力</dt>
+                  <dd>
+                    {selected.hot_reload === false ? '插件本体需重启' : '插件本体可热重载'}；
+                    {selected.config_hot_reload === false ? '配置改动需重启' : '配置改动可热重载'}
+                  </dd>
+                </div>
+                <div className="plugin-info-item plugin-info-item-wide">
+                  <dt>配置文件</dt>
+                  <dd className="plugin-info-path">
+                    <code>{configDocument?.path || 'plugins_data/' + selected.name + '/config.toml'}</code>
+                  </dd>
+                </div>
                 {!!selected.dependencies?.length && (
-                  <>
+                  <div className="plugin-info-item">
                     <dt>前置插件</dt>
                     <dd>{selected.dependencies.join('、')}</dd>
-                  </>
+                  </div>
                 )}
                 {!!selected.dependents?.length && (
-                  <>
+                  <div className="plugin-info-item">
                     <dt>依赖此插件</dt>
                     <dd>
                       {selected.dependents.join('、')}
                       <small>停用或卸载此插件时会联动停用。</small>
                     </dd>
-                  </>
+                  </div>
                 )}
                 {!!selected.tags?.length && (
-                  <>
+                  <div className="plugin-info-item plugin-info-item-wide">
                     <dt>标签</dt>
-                    <dd>{selected.tags.join(' · ')}</dd>
-                  </>
+                    <dd className="plugin-info-tags">
+                      {selected.tags.map((tag, index) => (
+                        <span key={`${tag}-${index}`}>{tag}</span>
+                      ))}
+                    </dd>
+                  </div>
                 )}
               </dl>
               {!!selected.command_renames?.length && (

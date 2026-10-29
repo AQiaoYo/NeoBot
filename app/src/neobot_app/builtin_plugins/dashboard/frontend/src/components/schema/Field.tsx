@@ -80,7 +80,7 @@ export default function Field(props: FieldProps) {
               </button>
             )}
             <h3>
-              <Highlight text={descriptor.name} keyword={showHit ? filter : undefined} />
+              <Highlight text={descriptor.label || descriptor.name} keyword={showHit ? filter : undefined} />
             </h3>
             {descriptor.readonly && <span className="cfg-readonly">只读</span>}
             <span>{visible.length} 项</span>

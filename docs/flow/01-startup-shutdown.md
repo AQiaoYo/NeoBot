@@ -13,12 +13,14 @@ covers:
   - app/src/neobot_app/runtime/process_stop.py
   - app/src/neobot_app/runtime/connection_readiness.py
 verified_against: 56559c2
-verified_hash: 5a0f8f5ff0f6
+verified_hash: 4b26aa6720c1
 ---
 
 # 01 启动装配 / 停机 / 软重启 / 待机
 
 ## 范围
+
+`cli.main` 明确设置 argparse 的 `prog="neobot"`，保证直接入口与模块调用的 `--version` 输出使用同一个公开命令名，版本值仍动态读取。
 
 这张图回答四个问题：**进程怎么起来**（CLI 入口 + 装配顺序）、**每一步失败停在哪**
 （启动 13 步 + 回滚清单）、**怎么在不换进程的前提换一代运行时**（待机 + 软重启），

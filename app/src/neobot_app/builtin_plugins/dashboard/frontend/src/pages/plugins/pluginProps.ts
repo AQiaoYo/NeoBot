@@ -8,7 +8,12 @@ export type ActResult = Result<any> | undefined;
 
 export interface PluginActionHandlers {
   /** 执行一次受管操作：内部维护 operation/busyRef 并 notify 结果 */
-  act: (key: string, fn: () => Promise<Result<any>>, success: string) => Promise<ActResult>;
+  act: (
+    key: string,
+    fn: () => Promise<Result<any>>,
+    success: string,
+    showFeedback?: boolean,
+  ) => Promise<ActResult>;
   load: () => Promise<void>;
   read: (id: string) => Promise<void>;
   save: (reload: boolean) => Promise<void>;
@@ -63,6 +68,7 @@ export interface PluginEditorPanelProps extends PluginActionHandlers {
   loading: boolean;
   operation: string;
   dirty: boolean;
+  editingSession?: boolean;
   isConsole: boolean;
   canEdit: boolean;
   canSave: boolean;

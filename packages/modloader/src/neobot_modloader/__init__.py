@@ -48,6 +48,7 @@ from neobot_modloader.plugin import Plugin
 from neobot_modloader.reply import Reply
 from neobot_modloader.runtime import PluginRuntime
 from neobot_modloader.context import RuntimePluginContext
+from neobot_modloader.sdk import ActionError, ActionInvocation, ActionPermission, PluginSurface, SurfaceContractError
 from neobot_modloader.users import UserDirectory, UserProfile
 from neobot_contracts.ports.screenshot import (
     FontFace,
@@ -67,6 +68,9 @@ from neobot_contracts.ports.screenshot import (
 )
 
 __all__ = [
+    "ActionError",
+    "ActionInvocation",
+    "ActionPermission",
     "AgentRequest",
     "AtSegment",
     "Bot",
@@ -112,6 +116,8 @@ __all__ = [
     "PluginOperationResult",
     "PluginRuntime",
     "PluginSnapshot",
+    "PluginSurface",
+    "SurfaceContractError",
     "PythonDependencyInstaller",
     "Reply",
     "RuntimeGeneration",

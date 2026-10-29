@@ -8,12 +8,14 @@ covers:
   - app/src/neobot_app/message/
   - packages/adapter/src/neobot_adapter/
 verified_against: 6233322
-verified_hash: cdbcb1a94b17
+verified_hash: 241ac1f9deb3
 ---
 
 # 00 全局视图：进程启动 -> 入站 -> 处理 -> 出站 -> 停机
 
 ## 范围
+
+公开 CLI 的程序名固定为 `neobot`，版本号仍从包元数据读取；Python 3.14 下也不依赖 argparse 对解释器启动方式的默认推断。
 
 这是**跨模块的一张总图**：从 `cli.main` 装配进程，到一条 QQ 消息进来、被判定、走回复管线、
 把结果发出去，最后遇到停机信号如何有界拆除。单模块细节不在这张图里，分别见：

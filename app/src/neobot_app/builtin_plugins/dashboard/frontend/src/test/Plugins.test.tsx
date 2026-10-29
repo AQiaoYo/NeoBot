@@ -18,6 +18,7 @@ vi.mock('../api/endpoints', () => ({
   api: {
     plugins: vi.fn(),
     pluginConfig: vi.fn(),
+    pluginSurface: vi.fn(),
     pluginConfigSave: vi.fn(),
     pluginToggle: vi.fn(),
     pluginReload: vi.fn(),
@@ -77,6 +78,18 @@ beforeEach(() => {
   vi.mocked(api.plugins).mockResolvedValue(PLUGIN_LIST);
   // 配置详情保持在加载中，聚焦列表与工具栏行为
   vi.mocked(api.pluginConfig).mockImplementation(() => new Promise(() => {}));
+  vi.mocked(api.pluginSurface).mockResolvedValue({
+    ok: true,
+    status: 200,
+    error: null,
+    data: {
+      contract: null,
+      available: false,
+      state: 'loaded',
+      permissions: ['read'],
+      source: 'none',
+    },
+  });
 });
 
 describe('Plugins 页面', () => {
@@ -113,7 +126,7 @@ describe('Plugins 页面', () => {
       vi.useFakeTimers();
       try {
         const doc: ConfigDocument = {
-          revision: 3,
+          revision: '00000000000000000000000000000003',
           config: { payload: kind === '非法 JSON' ? { nested: [1] } : {} },
           form_supported: true,
           schema: [
@@ -179,7 +192,7 @@ describe('Plugins 页面', () => {
         ok: true,
         status: 200,
         error: null,
-        data: { revision: 1, config: {}, form_supported: true, schema: [] },
+        data: { revision: '00000000000000000000000000000001', config: {}, form_supported: true, schema: [] },
       });
       render(<Plugins />);
       await act(async () => {});
@@ -233,7 +246,7 @@ describe('Plugins 页面', () => {
 
   it('配置保存只产生一条通知，未生效结果保留警告及完整原因', async () => {
     const document = {
-      revision: 1,
+      revision: '00000000000000000000000000000001',
       config: { greeting: '原始内容' },
       form_supported: true,
       schema: [
@@ -349,7 +362,7 @@ describe('Plugins 页面', () => {
         status: 200,
         error: null,
         data: {
-          revision: 3,
+          revision: '00000000000000000000000000000003',
           config: {},
           source: '[config]\nenabled = true\n',
           form_supported: true,
@@ -382,7 +395,7 @@ describe('Plugins 页面', () => {
       );
       fireEvent.keyDown(editor, { key: 's', ctrlKey: true });
       expect(api.pluginConfigSave).toHaveBeenCalledWith('dashboard', {
-        revision: 3,
+        revision: '00000000000000000000000000000003',
         mode: 'toml',
         source,
         reload: true,
@@ -402,7 +415,7 @@ describe('Plugins 页面', () => {
     vi.useFakeTimers();
     try {
       const doc = {
-        revision: 1,
+        revision: '00000000000000000000000000000001',
         config: { greeting: '初始配置' },
         source: 'greeting = "初始配置"',
         form_supported: true,
@@ -419,7 +432,7 @@ describe('Plugins 页面', () => {
           error: null,
           data: {
             ...doc,
-            revision: 2,
+            revision: '00000000000000000000000000000002',
             config: { greeting: '文件新配置' },
             source: 'greeting = "文件新配置"',
             schema: doc.schema.map((field) => ({ ...field, value: '文件新配置' })),
@@ -444,7 +457,12 @@ describe('Plugins 页面', () => {
       });
       fireEvent.change(screen.getByDisplayValue('文件新配置'), { target: { value: '请求途中键入' } });
       await act(async () => {
-        finish({ ok: true, status: 200, error: null, data: { ...doc, revision: 3 } });
+        finish({
+          ok: true,
+          status: 200,
+          error: null,
+          data: { ...doc, revision: '00000000000000000000000000000003' },
+        });
       });
       expect(screen.getByDisplayValue('请求途中键入')).toBeInTheDocument();
       vi.mocked(api.pluginConfigSave).mockResolvedValueOnce({
@@ -458,7 +476,10 @@ describe('Plugins 页面', () => {
       });
       expect(api.pluginConfigSave).toHaveBeenCalledWith(
         'dashboard',
-        expect.objectContaining({ revision: 2, config: { greeting: '请求途中键入' } }),
+        expect.objectContaining({
+          revision: '00000000000000000000000000000002',
+          config: { greeting: '请求途中键入' },
+        }),
       );
     } finally {
       vi.useRealTimers();

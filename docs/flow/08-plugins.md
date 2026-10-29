@@ -15,7 +15,7 @@ covers:
   - app/src/neobot_app/runtime/plugin_config_reload.py
   - app/src/neobot_app/bootstrap/_skills.py
 verified_against: 528fe18
-verified_hash: 673b1740f81d
+verified_hash: 0dcf364530dc
 ---
 
 # 08 插件系统：扫描 · 加载 · 启停 · 依赖 · 配置热重载
@@ -45,14 +45,14 @@ verified_hash: 673b1740f81d
 flowchart TD
     A["build_plugin_runtime / bootstrap/_skills.py:91（同步装配）"] --> B["PluginRuntime.load_all / runtime.py:426"]
     B --> C["scan_dirs(): 官方目录在前, 第三方目录在后 / runtime.py:251"]
-    C --> D["FilesystemPluginLoader.load_all / loader.py:82（逐目录）"]
+    C --> D["FilesystemPluginLoader.load_all(resolve_dependencies=False)：逐目录收集"]
     D --> E{"目录带 __init__.py 或单文件 .py?"}
     E -- 都不是 / 带 _ 前缀 --> E1["跳过: 不是插件, 不报错"]
     E -- 是 --> F["import_module: 清 __pycache__ + 新 gN 命名空间 / importer.py:30"]
     F --> G{"plugin.toml 存在?"}
     G -- 是 --> G1["read_manifest: name / version / priority / dependencies / hot_reload"]
     G -- 否 --> G2["单文件插件: 版本固定 0.1.0, 元数据取 Plugin() 属性"]
-    G1 --> H["order_results: 拓扑排序 + 依赖判定 / ordering.py:233"]
+    G1 --> H["runtime 汇总全部来源，官方名称去重后统一 order_results"]
     G2 --> H
     H --> I{"依赖问题?（五种 code, 见细节 4）"}
     I -- 有 --> I1["DisabledPlugin: 自动禁用, 不阻断启动, 记 _auto_disabled"]
@@ -85,9 +85,10 @@ sequenceDiagram
     participant HR as HotReloadRegistry或plugin_config_reload
 
     Note over RT,LD: 启动装配（同步, 无 await, 装不下就整段跳过）
-    RT->>LD: load_all(plugin_dir) 逐目录（官方目录先）
-    LD->>LD: 导入模块（新 gN 命名空间）+ order_results 拓扑排序
+    RT->>LD: load_all(plugin_dir, resolve_dependencies=False) 逐目录（官方目录先）
+    LD->>LD: 导入模块（新 gN 命名空间），本阶段不判跨来源依赖
     LD-->>RT: LoadedPlugin / DisabledPlugin / PluginLoadError 三选一
+    RT->>RT: 合并来源并保留官方名称，统一依赖判定和拓扑排序
     RT->>RT: 存在性依赖 + PyPI 依赖 + min_neobot_version 检查（任一不过 = 跳过加载, 不致命）
     RT->>MG: register(plugin, context)（只登记, 不 await 生命周期）
     Note over RT,MG: 之后 load_registered / start_all 才跑生命周期
@@ -192,6 +193,10 @@ flowchart TD
 
 版本口径（`version.py`）：`1.0` 与 `1.0.0` 相等（去尾零）；预发布后缀被忽略，`1.0.0-alpha.1` 按 `1.0.0` 处理；`compare_plugin_versions` 对**任一侧解析不出数字**或**全零版本**（源码运行回落 `0.0.0`）返回 `None`，语义是「无法比较，别拦」。
 `parse_dependencies` 额外拒绝两类写法：单个字符串（必须是列表）、同名依赖声明两次。
+
+以上是插件间版本比较。Python 包依赖单独使用 `packaging.Requirement` 解析完整 PEP 508 声明，
+按环境 marker 决定是否适用，再检查已安装版本是否满足；非法声明只记为该插件加载失败，不能中断全局扫描。
+清单中的插件依赖优先于 `Plugin.dependencies`，导入后同步为同一份运行时依赖，保证后续启停和重载使用相同判据。
 </details>
 
 <details>
@@ -226,7 +231,7 @@ flowchart TD
 
 | 入口 | 时机 | 判据 | 不满足的后果 |
 |---|---|---|---|
-| `ordering._evaluate` | `loader.load_all` 排序时 | 静态快照 + `unavailable` 名单 | 变 `DisabledPlugin` |
+| `ordering._evaluate` | 运行时汇总全部来源后排序；独立 loader 默认自行排序 | 静态快照 + `unavailable` 名单 | 变 `DisabledPlugin` |
 | `runtime._dependency_presence_issues` | `load_all` 注册阶段 | 只查记录**在不在**，不要求已加载 | 自动禁用（跳过注册） |
 | `runtime._dependency_issues` | 启动 / 激活 / 重载插件 | 要求前置状态在 LOADED 或 RUNNING，且版本满足 | 返回 `ok=False` + 原因 |
 | `PluginRegistryView.dependency_issues` | 面板查询 | 同上一行，但只产出文本 | 只展示，不拦操作 |

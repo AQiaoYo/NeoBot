@@ -169,6 +169,24 @@ function modelParamsValue(field: FieldDescriptor, source: Record<string, any>): 
   return { enabled_params: enabled, extra_body: extra, values };
 }
 
+/** 对象列表模板不含行号；生成当前行时同步重写其所有后代路径。 */
+export function rebaseFieldPaths(
+  fields: FieldDescriptor[],
+  previous: string[],
+  next: string[],
+): FieldDescriptor[] {
+  return fields.map((field) => ({
+    ...field,
+    path: [...next, ...field.path.slice(previous.length)],
+    fields: field.fields && rebaseFieldPaths(field.fields, previous, next),
+    item_fields: field.item_fields && rebaseFieldPaths(field.item_fields, previous, next),
+    items: field.items?.map((item) => ({
+      ...item,
+      fields: rebaseFieldPaths(item.fields, previous, next),
+    })),
+  }));
+}
+
 /** 把草稿值绑定到后端 schema 的描述符上（表单只认描述符上的 value）。 */
 export function bindValues(
   fields: FieldDescriptor[],
@@ -184,6 +202,27 @@ export function bindValues(
         model_type: (values && values.model_type) ?? context.model_type,
       };
       return { ...field, value: nested, fields: bindValues(field.fields || [], nested, nextContext) };
+    }
+    if (field.kind === 'model_list') {
+      const current = value === undefined ? field.value : value;
+      const rows = Array.isArray(current) ? current : [];
+      return {
+        ...field,
+        value: rows,
+        items: rows.map((row, index) => {
+          const item = row && typeof row === 'object' ? (row as Record<string, unknown>) : {};
+          const template = field.item_fields ?? field.items?.[index]?.fields ?? [];
+          const previous = field.item_fields ? field.path : [...field.path, String(index)];
+          const fields = rebaseFieldPaths(template, previous, [...field.path, String(index)]);
+          return {
+            index,
+            fields: bindValues(fields, item, {
+              provider: item.provider ?? context.provider,
+              model_type: item.model_type ?? context.model_type,
+            }),
+          };
+        }),
+      };
     }
     if (field.kind === 'model_params') {
       // 伪字段：值来自 settings 草稿（enabled_params / extra_body / 各可选参数值），

@@ -48,15 +48,11 @@ class PluginModuleImporter:
         sys.modules[module_name] = module
         try:
             spec.loader.exec_module(module)
-        except Exception:
+        except BaseException:
+            # 包括主动退出和取消在内，未完成导入的代都不能残留在模块缓存中。
             self.clear_module_cache((module_name,))
             raise
-        after = {
-            name
-            for name in sys.modules
-            if name == module_name
-            or name.startswith(f"{module_name}.")
-        }
+        after = {name for name in sys.modules if name == module_name or name.startswith(f"{module_name}.")}
         self.last_module_names = tuple(sorted(after))
         return module
 

@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>直播订阅</title>
+    <link rel="stylesheet" href="_ui.css" />
+    <link rel="stylesheet" href="style.css" />
+    <script src="_sdk.js"></script>
+    <script defer src="app.js"></script>
+  </head>
+  <body>
+    <main class="nb-view">
+      <h1 class="nb-sr-only">直播订阅</h1>
+      <div class="subscription-editor">
+        <div class="subscription-form nb-stack">
+          <section id="group" class="nb-field" tabindex="-1">
+            <label for="group_id">接收通知的群</label>
+            <div class="nb-inline">
+              <select id="group_id" name="group_id">
+                <option value="">请选择接收群</option></select
+              ><button id="reload-groups" class="nb-quiet" type="button">
+                刷新
+              </button>
+            </div>
+            <p id="group-hint" class="nb-help" hidden></p>
+          </section>
+          <section id="target" class="nb-field" tabindex="-1">
+            <label for="target-input">直播间或账号链接</label>
+            <div class="nb-inline">
+              <input
+                id="target-input"
+                name="target"
+                maxlength="256"
+                placeholder="粘贴直播间或 UP 主空间链接"
+                autocomplete="off"
+              /><button id="resolve" type="button">识别</button>
+            </div>
+            <p id="identity" class="nb-help">支持房间号、短号和 uid: 写法。</p>
+          </section>
+          <div class="nb-actions">
+            <section id="preview" tabindex="-1">
+              <button id="show-preview" type="button">预览通知</button>
+            </section>
+            <section id="start" tabindex="-1">
+              <button id="subscribe" class="nb-primary" type="button" disabled>
+                开始监听
+              </button>
+            </section>
+          </div>
+          <p id="confirmation" class="nb-muted" hidden></p>
+        </div>
+        <aside class="preview-panel" aria-label="通知预览">
+          <div class="preview-heading">
+            <h2>通知卡片</h2>
+            <span id="preview-style" class="nb-muted">未预览</span
+            ><button id="preview-zoom" class="nb-quiet" type="button" hidden>
+              查看原始大小
+            </button>
+          </div>
+          <div id="preview-empty" class="preview-empty">
+            <svg viewBox="0 0 120 88" aria-hidden="true">
+              <rect x="8" y="8" width="104" height="72" rx="8" />
+              <path d="M24 56l21-20 18 14 15-10 18 16M26 66h68" />
+              <circle cx="85" cy="27" r="7" />
+            </svg>
+            <p>选择群和直播间后，预览通知卡片。</p>
+          </div>
+          <div id="preview-canvas" class="preview-canvas" hidden>
+            <div id="preview-stage" class="preview-stage">
+              <iframe
+                id="card"
+                title="通知卡片预览"
+                sandbox=""
+                tabindex="-1"
+              ></iframe>
+            </div>
+          </div>
+        </aside>
+      </div>
+      <section
+        id="status"
+        class="subscriptions nb-section"
+        tabindex="-1"
+        aria-labelledby="list-title"
+      >
+        <div class="nb-section-heading">
+          <h2 id="list-title">订阅列表</h2>
+          <div class="subscription-status">
+            <span id="health">—</span><span id="checked" class="nb-muted"></span
+            ><button id="refresh" class="nb-quiet" type="button">
+              刷新状态
+            </button>
+          </div>
+        </div>
+        <p id="list-empty" class="nb-empty">
+          还没有订阅，选择接收群和直播间后即可开始监听。
+        </p>
+        <div
+          class="nb-table-wrap"
+          tabindex="0"
+          role="region"
+          aria-label="直播订阅列表"
+        >
+          <table id="rows" hidden>
+            <thead>
+              <tr>
+                <th>主播</th>
+                <th>接收群</th>
+                <th>开播通知</th>
+                <th>下播通知</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

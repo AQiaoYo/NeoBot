@@ -58,6 +58,7 @@ export default function Plugins() {
   const [editorVersion, setEditorVersion] = useState(0);
   const [editingSession, setEditingSession] = useState(false);
   const editingSessionRef = useRef(false);
+  const configComposing = useRef(false);
   const [installOpen, setInstallOpen] = useState(false);
   const [installRepo, setInstallRepo] = useState('');
   const [installBranch, setInstallBranch] = useState('main');
@@ -475,11 +476,42 @@ export default function Plugins() {
   return (
     <div
       className="page plugins-page page--viewport"
-      onInputCapture={(event) => {
+      // 与字段的 change 在冒泡阶段一起提交，避免捕获阶段先重渲染、覆盖首次输入。
+      onInput={(event) => {
         if (!(event.target instanceof HTMLElement) || !event.target.closest('.config-body')) return;
         editGeneration.current++;
         editingSessionRef.current = true;
         setEditingSession(true);
+      }}
+      onCompositionStart={(event) => {
+        if (event.target instanceof HTMLElement && event.target.closest('.config-body'))
+          configComposing.current = true;
+      }}
+      onCompositionEnd={(event) => {
+        if (event.target instanceof HTMLElement && event.target.closest('.config-body'))
+          configComposing.current = false;
+      }}
+      onBlur={(event) => {
+        const editor = event.target instanceof HTMLElement ? event.target.closest('.config-body') : null;
+        if (!editor) return;
+        // 等焦点与本次输入落定；集合里尚未点击添加的内容同样属于本地草稿。
+        queueMicrotask(() => {
+          const pending = editor.querySelectorAll<HTMLInputElement>(
+            '.cfg-kv-row.add input, .cfg-draglist-row.add input, .cfg-chip-add input',
+          );
+          if (
+            !mounted.current ||
+            !editor.isConnected ||
+            configComposing.current ||
+            dirtyRef.current ||
+            editor.contains(document.activeElement) ||
+            editor.querySelector('[aria-invalid="true"]') ||
+            Array.from(pending).some((input) => input.value !== '')
+          )
+            return;
+          editingSessionRef.current = false;
+          setEditingSession(false);
+        });
       }}
     >
       <PageHeader
@@ -543,6 +575,7 @@ export default function Plugins() {
             loading={loading}
             operation={operation}
             dirty={dirty}
+            editingSession={editingSession}
             isConsole={isConsole}
             canEdit={canEdit}
             canSave={canSave}

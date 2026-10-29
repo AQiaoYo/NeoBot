@@ -50,7 +50,7 @@ export interface SchemaFormProps {
 }
 
 /** 密钥类字段名：渲染成密码框并给「显示/隐藏」按钮 */
-export const SECRET_RE = /token|password|secret|api[_-]?key|credential|access_key/i;
+export const SECRET_RE = /token|password|secret|api[_-]?key|access[_-]?key|credential|authorization|cookie/i;
 
 export function defaultsFromFields(fields: FieldDescriptor[] = []): Record<string, FieldValue> {
   const value: Record<string, FieldValue> = {};

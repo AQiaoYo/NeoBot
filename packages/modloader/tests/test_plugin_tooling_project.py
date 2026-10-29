@@ -1,0 +1,204 @@
+"""工程生成、显式导出与无执行静态校验的回归。"""
+
+import json
+import subprocess
+import sys
+import tomllib
+from pathlib import Path
+
+import pytest
+
+from neobot_modloader.sdk.tooling import check_project, export_contract, init_project
+from plugin_tooling_helpers import make_project, write_contract
+
+
+def test_init_creates_a_ready_to_check_project(tmp_path: Path) -> None:
+    path = tmp_path / "hello"
+    report = init_project(path, "hello")
+    assert report.ok, report.errors
+    assert (path / "__init__.py").is_file()
+    assert (path / "tests" / "test_plugin.py").is_file()
+    assert check_project(path).ok
+    assert export_contract(path, check=True).ok
+
+
+def test_init_guide_explains_real_configuration_and_ping_command(tmp_path: Path) -> None:
+    path = tmp_path / "hello"
+    report = init_project(path, "hello")
+    assert report.ok, report.errors
+    contract = json.loads((path / "plugin.contract.json").read_text(encoding="utf-8"))
+    assert contract["actions"] == []
+    assert contract["guides"] == [
+        {
+            "id": "first-use",
+            "title": "首次使用",
+            "steps": [
+                {
+                    "target": "config.greeting",
+                    "text": "在插件配置中填写回复内容，再保存配置。",
+                    "chapter": "设置回复",
+                    "example": {"greeting": "你好，NeoBot"},
+                },
+                {
+                    "target": "config.greeting",
+                    "text": "回到与机器人的私聊，发送 /ping。机器人会回复刚才保存的文字。",
+                    "chapter": "发送命令验证",
+                    "command": {"text": "/ping", "context": "在与机器人的私聊中发送", "reply": "你好，NeoBot"},
+                },
+            ],
+            "completion_action": None,
+            "demo": {"config": {"greeting": "你好，NeoBot"}},
+        }
+    ]
+    metadata = tomllib.loads((path / "plugin.toml").read_text(encoding="utf-8"))
+    assert metadata["python_dependencies"] == ["pydantic>=2,<3"]
+
+
+def test_init_never_overwrites_an_existing_directory(tmp_path: Path) -> None:
+    path = tmp_path / "hello"
+    path.mkdir()
+    marker = path / "existing.txt"
+    marker.write_text("keep", encoding="utf-8")
+    report = init_project(path, "hello")
+    assert not report.ok
+    assert marker.read_text(encoding="utf-8") == "keep"
+    assert not (path / "plugin.toml").exists()
+
+
+def test_generated_business_test_runs_against_real_dispatch(tmp_path: Path) -> None:
+    path = tmp_path / "hello"
+    assert init_project(path, "hello").ok
+    completed = subprocess.run(
+        [sys.executable, "-m", "pytest", str(path / "tests"), "-p", "no:cacheprovider", "-q"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert "1 passed" in completed.stdout
+
+
+def test_static_check_does_not_execute_plugin_code(tmp_path: Path) -> None:
+    marker = tmp_path / "executed.txt"
+    path = make_project(
+        tmp_path,
+        body=f"\nfrom pathlib import Path\nPath({str(marker)!r}).write_text('bad')\nraise RuntimeError('do not import')\n",
+    )
+    report = check_project(path)
+    assert report.ok, report.errors
+    assert report.executes_plugin is False
+    assert not marker.exists()
+
+
+@pytest.mark.parametrize("value", ["../outside.json", "/outside.json", "C:/outside.json"])
+def test_static_check_rejects_contract_path_escape(tmp_path: Path, value: str) -> None:
+    path = make_project(tmp_path)
+    (path / "plugin.toml").write_text(
+        f'name = "sample"\nversion = "0.1.0"\n[sdk]\nversion = 1\ncontract = "{value}"\n',
+        encoding="utf-8",
+    )
+    report = check_project(path)
+    assert not report.ok
+    assert any("contract" in error for error in report.errors)
+
+
+def test_static_check_reports_contract_identity_mismatch(tmp_path: Path) -> None:
+    path = make_project(tmp_path)
+    write_contract(path, "different")
+    report = check_project(path)
+    assert not report.ok
+    assert any("name" in error for error in report.errors)
+
+
+def test_export_marks_execution_and_clears_imported_modules(tmp_path: Path) -> None:
+    marker = tmp_path / "executed.txt"
+    path = make_project(
+        tmp_path,
+        body=f"\nfrom pathlib import Path\nPath({str(marker)!r}).write_text('executed')\n",
+    )
+    before = set(sys.modules)
+    report = export_contract(path)
+    assert report.ok, report.errors
+    assert report.executes_plugin is True
+    assert marker.is_file()
+    assert not any(name.startswith("neobot_sdk_export.") for name in set(sys.modules) - before)
+
+
+def test_export_check_detects_stale_contract_without_rewriting_it(tmp_path: Path) -> None:
+    path = make_project(tmp_path, body="plugin.description = 'updated'\n")
+    contract = path / "plugin.contract.json"
+    before = contract.read_bytes()
+    report = export_contract(path, check=True)
+    assert not report.ok
+    assert contract.read_bytes() == before
+    assert export_contract(path).ok
+    assert export_contract(path, check=True).ok
+
+
+def test_export_supports_contract_in_a_plain_metadata_directory(tmp_path: Path) -> None:
+    path = make_project(tmp_path)
+    manifest = path / "plugin.toml"
+    manifest.write_text(
+        manifest.read_text(encoding="utf-8").replace(
+            'contract = "plugin.contract.json"', 'contract = "metadata/contract.json"'
+        ),
+        encoding="utf-8",
+    )
+    assert export_contract(path).ok
+    assert (path / "metadata" / "contract.json").is_file()
+    assert check_project(path).ok
+
+
+def test_cli_json_is_not_corrupted_by_plugin_stdout(tmp_path: Path) -> None:
+    path = make_project(tmp_path, body="print('plugin output')\n")
+    completed = subprocess.run(
+        [sys.executable, "-m", "neobot_modloader.sdk", "export", str(path), "--json"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert json.loads(completed.stdout)["ok"] is True
+    assert "plugin output" in completed.stderr
+
+
+def test_cli_static_failure_returns_nonzero_and_structured_errors(tmp_path: Path) -> None:
+    completed = subprocess.run(
+        [sys.executable, "-m", "neobot_modloader.sdk", "check", str(tmp_path), "--json"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
+    )
+    assert completed.returncode != 0
+    report = json.loads(completed.stdout)
+    assert report["ok"] is False
+    assert report["errors"]
+
+
+def test_plugin_exit_cannot_turn_export_into_success(tmp_path: Path) -> None:
+    path = make_project(tmp_path, body="raise SystemExit(0)\n")
+    completed = subprocess.run(
+        [sys.executable, "-m", "neobot_modloader.sdk", "export", str(path), "--json"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
+    )
+    assert completed.returncode != 0
+    assert json.loads(completed.stdout)["ok"] is False
+
+
+def test_export_releases_the_namespace_when_author_code_exits(tmp_path: Path) -> None:
+    path = make_project(tmp_path, body="raise SystemExit(0)\n")
+    before = set(sys.modules)
+    report = export_contract(path)
+    imported = {name for name in set(sys.modules) - before if name.startswith("neobot_sdk_export.")}
+    try:
+        assert not report.ok
+        assert not imported
+    finally:
+        for name in imported:
+            sys.modules.pop(name, None)
