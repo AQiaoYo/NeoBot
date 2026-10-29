@@ -7,7 +7,7 @@ from pydantic import BaseModel, SecretBytes, SecretStr
 from pydantic.fields import FieldInfo
 from pydantic_core import PydanticUndefined
 
-from .normalize import _MISSING, _field_input_paths, _submitted_field, _value_at_input_path
+from .normalize import _MISSING, _field_input_paths, _submitted_field
 from .schema import _inner_types, _jsonable, _type_name
 from .secret_values import PluginSecretPolicy
 
@@ -66,17 +66,6 @@ def _constraints(field: FieldInfo) -> dict[str, Any]:
     return result
 
 
-def _form_input_path(values: Any, path: list[str | int]) -> list[str | int]:
-    result = []
-    for part in path:
-        index = int(part) if isinstance(part, int) else part
-        if isinstance(part, int) and part < 0 and isinstance(values, list) and len(values) >= -part:
-            index = len(values) + part
-        result.append(index)
-        values = _value_at_input_path(values, [part])
-    return result
-
-
 class _DescriptorBuilder:
     def __init__(self) -> None:
         self.policies: dict[type[BaseModel], PluginSecretPolicy] = {}
@@ -126,8 +115,8 @@ class _DescriptorBuilder:
         input_path, value = selected if selected is not None else (input_paths[0], default)
         if selected is None and model_value is not _MISSING:
             value = model_value
-        # JSON 中的数组下标保留整数；负别名下标转为当前行位置，供表单准确写回。
-        form_path = _form_input_path(values, input_path)
+        # 保留负下标的相对语义：草稿扩容后旧描述符仍须指向同一个别名。
+        form_path = [int(part) if isinstance(part, int) else part for part in input_path]
         extra = field.json_schema_extra if isinstance(field.json_schema_extra, dict) else {}
         target = _target(field.annotation)
         descriptor: dict[str, Any] = {

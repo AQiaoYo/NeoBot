@@ -45,6 +45,41 @@ beforeEach(() => {
 });
 
 describe('插件首次配置的输入别名', () => {
+  it('扩容后继续编辑另一负别名仍提交对应的最后一项', async () => {
+    const document: ConfigDocument = {
+      revision: 'negative-alias',
+      config: { payload: [{ a: 10 }] },
+      form_supported: true,
+      schema: [
+        {
+          name: 'last',
+          path: ['payload', -1, 'a'],
+          label: '最后一项',
+          kind: 'scalar',
+          type: 'int',
+          value: 10,
+        },
+        {
+          name: 'previous',
+          path: ['payload', -2, 'b'],
+          label: '前一项',
+          kind: 'scalar',
+          type: 'int',
+          value: 20,
+        },
+      ],
+    };
+    vi.mocked(api.pluginConfig).mockResolvedValue({ ok: true, status: 200, error: null, data: document });
+    vi.mocked(api.pluginConfigSave).mockResolvedValue({ ok: true, status: 200, error: null, data: document });
+    render(<Plugins />);
+    fireEvent.change(await screen.findByRole('spinbutton', { name: /前一项/ }), { target: { value: '25' } });
+    fireEvent.change(screen.getByRole('spinbutton', { name: /最后一项/ }), { target: { value: '15' } });
+    fireEvent.click(screen.getByRole('button', { name: /保存并重载/ }));
+    await waitFor(() => expect(api.pluginConfigSave).toHaveBeenCalled());
+    expect(vi.mocked(api.pluginConfigSave).mock.calls[0][1].config).toEqual({
+      payload: [{ b: 25 }, { a: 15 }],
+    });
+  });
   it.each([0, 2, -1, -2])('空配置中的数组下标 %s 可编辑并提交真实表单', async (index) => {
     const path = ['payload', index, 'entry'];
     const document: ConfigDocument = {
