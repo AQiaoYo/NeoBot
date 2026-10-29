@@ -50,6 +50,181 @@
     },
     {
       "description": "",
+      "id": "groups.settings.get",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "group_id": {
+            "exclusiveMinimum": 0,
+            "title": "接收通知的群",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "group_id"
+        ],
+        "title": "GroupSettingsInput",
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "ai_reply_live": {
+            "title": "开播后触发 AI 回复",
+            "type": "boolean"
+          },
+          "ai_reply_live_end": {
+            "title": "下播后触发 AI 回复",
+            "type": "boolean"
+          },
+          "card_style": {
+            "enum": [
+              "random",
+              "sakura",
+              "neon",
+              "minimal"
+            ],
+            "title": "通知卡片风格",
+            "type": "string"
+          },
+          "default_push_live": {
+            "title": "新订阅默认发送开播通知",
+            "type": "boolean"
+          },
+          "default_push_live_end": {
+            "title": "新订阅默认发送下播通知",
+            "type": "boolean"
+          },
+          "group_id": {
+            "exclusiveMinimum": 0,
+            "title": "接收通知的群",
+            "type": "integer"
+          },
+          "inherited": {
+            "title": "尚未保存群设置，使用插件默认值",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "group_id",
+          "card_style",
+          "ai_reply_live",
+          "ai_reply_live_end",
+          "default_push_live",
+          "default_push_live_end",
+          "inherited"
+        ],
+        "title": "GroupSettings",
+        "type": "object"
+      },
+      "permission": "read",
+      "title": "查看群设置"
+    },
+    {
+      "description": "",
+      "id": "groups.settings.update",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "ai_reply_live": {
+            "title": "开播后触发 AI 回复",
+            "type": "boolean"
+          },
+          "ai_reply_live_end": {
+            "title": "下播后触发 AI 回复",
+            "type": "boolean"
+          },
+          "card_style": {
+            "enum": [
+              "random",
+              "sakura",
+              "neon",
+              "minimal"
+            ],
+            "title": "通知卡片风格",
+            "type": "string"
+          },
+          "default_push_live": {
+            "title": "新订阅默认发送开播通知",
+            "type": "boolean"
+          },
+          "default_push_live_end": {
+            "title": "新订阅默认发送下播通知",
+            "type": "boolean"
+          },
+          "group_id": {
+            "exclusiveMinimum": 0,
+            "title": "接收通知的群",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "group_id",
+          "card_style",
+          "ai_reply_live",
+          "ai_reply_live_end",
+          "default_push_live",
+          "default_push_live_end"
+        ],
+        "title": "GroupSettingsUpdateInput",
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "ai_reply_live": {
+            "title": "开播后触发 AI 回复",
+            "type": "boolean"
+          },
+          "ai_reply_live_end": {
+            "title": "下播后触发 AI 回复",
+            "type": "boolean"
+          },
+          "card_style": {
+            "enum": [
+              "random",
+              "sakura",
+              "neon",
+              "minimal"
+            ],
+            "title": "通知卡片风格",
+            "type": "string"
+          },
+          "default_push_live": {
+            "title": "新订阅默认发送开播通知",
+            "type": "boolean"
+          },
+          "default_push_live_end": {
+            "title": "新订阅默认发送下播通知",
+            "type": "boolean"
+          },
+          "group_id": {
+            "exclusiveMinimum": 0,
+            "title": "接收通知的群",
+            "type": "integer"
+          },
+          "inherited": {
+            "title": "尚未保存群设置，使用插件默认值",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "group_id",
+          "card_style",
+          "ai_reply_live",
+          "ai_reply_live_end",
+          "default_push_live",
+          "default_push_live_end",
+          "inherited"
+        ],
+        "title": "GroupSettings",
+        "type": "object"
+      },
+      "permission": "manage",
+      "title": "保存群设置"
+    },
+    {
+      "description": "",
       "id": "subscriptions.resolve",
       "input_schema": {
         "additionalProperties": false,
@@ -824,6 +999,24 @@
       "completion_action": null,
       "demo": {
         "actions": {
+          "groups.settings.get": {
+            "ai_reply_live": false,
+            "ai_reply_live_end": false,
+            "card_style": "minimal",
+            "default_push_live": true,
+            "default_push_live_end": true,
+            "group_id": 20001,
+            "inherited": true
+          },
+          "groups.settings.update": {
+            "ai_reply_live": false,
+            "ai_reply_live_end": false,
+            "card_style": "minimal",
+            "default_push_live": true,
+            "default_push_live_end": true,
+            "group_id": 20001,
+            "inherited": false
+          },
           "subscriptions.create": {
             "created": true,
             "item": {
@@ -909,43 +1102,52 @@
       "id": "first-subscription",
       "steps": [
         {
-          "chapter": "打开直播订阅设置",
+          "chapter": "打开空白订阅表单",
+          "example": {
+            "group_id": 0,
+            "target": ""
+          },
+          "target": "view.subscriptions.group",
+          "text": "选择插件页面后直接看到订阅表单，不需要再展开。开始时接收群和直播间都未填写；教程只使用合成群和主播，不会读取或改动你的订阅。"
+        },
+        {
+          "chapter": "选择接收通知的群",
+          "example": {
+            "group_id": 20001,
+            "target": ""
+          },
+          "target": "view.subscriptions.group",
+          "text": "先选择接收通知的群。真实页面只列出当前机器人加入的群；没有可选群时请先检查机器人连接和加群状态。这里只选群，还没有建立订阅。"
+        },
+        {
+          "chapter": "填写并识别直播间",
           "example": {
             "group_id": 20001,
             "target": "https://live.bilibili.com/610001"
           },
-          "target": "settings.subscriptions.group_id",
-          "text": "入口是插件管理 → streaming_parser → 配置表单 → 直播订阅。选择接收通知的群；这里只列出当前机器人加入的群。说明书使用合成样例，真实群目录以设置里的列表为准。"
+          "target": "view.subscriptions.target",
+          "text": "再填写直播间链接，点击识别核对主播和房间号。也支持房间号、短号、UP 主空间链接及 uid: 写法。前一步的群选择会保留。"
         },
         {
-          "chapter": "识别要监听的主播",
+          "chapter": "预览通知",
           "example": {
             "group_id": 20001,
             "target": "https://live.bilibili.com/610001"
           },
-          "target": "settings.subscriptions.target",
-          "text": "在直播间或账号链接中填写目标，再点识别核对主播。支持房间号、短号、直播间链接、UP 主空间链接和 uid: 写法。此时还没有建立订阅。"
+          "target": "view.subscriptions.preview",
+          "text": "预览后核对主播、接收群、卡片风格和文字内容。预览不会创建订阅，也不会往群里发送消息；修改群或链接后需要重新预览。"
         },
         {
-          "chapter": "预览通知内容",
+          "chapter": "确认并开始监听",
           "example": {
             "group_id": 20001,
             "target": "https://live.bilibili.com/610001"
           },
-          "target": "settings.subscriptions.subscriptions.preview",
-          "text": "点预览通知，核对卡片和将要接收通知的群。这里使用实际通知模板，但预览不会建立订阅，也不会往群里发送消息。换群或换目标后需要重新预览。"
+          "target": "view.subscriptions.start",
+          "text": "确认预览后点击开始监听，订阅即时保存，不需要再保存配置表单。同一群重复添加相同直播间会更新主播信息，并保留已有推送开关。"
         },
         {
-          "chapter": "开始监听",
-          "example": {
-            "group_id": 20001,
-            "target": "https://live.bilibili.com/610001"
-          },
-          "target": "settings.subscriptions.subscriptions.create",
-          "text": "确认预览后点开始监听，立即保存这条订阅，不需要再点页面底部的配置保存。重复添加同一群的同一直播间会更新主播信息，保留已有开播和下播推送开关。"
-        },
-        {
-          "chapter": "核对订阅与检查状态",
+          "chapter": "检查保存结果",
           "example": {
             "group_id": 20001,
             "items": [
@@ -964,11 +1166,164 @@
             ],
             "target": "https://live.bilibili.com/610001"
           },
-          "target": "settings.subscriptions.resource",
-          "text": "订阅列表可以调整开播、下播通知，保存该行后立即生效，也可取消监听。刷新状态可查看最近检查时间、监听状态和检查异常。首次检查只记录基线，以后状态变化才推送；说明播放结束不代表真实检查成功。"
+          "target": "view.subscriptions.status",
+          "text": "新增记录出现在下方列表，可按群筛选、查看房间与最近直播状态、调整开播和下播推送、取消监听。未首次检查的房间显示未检查，不会冒充正在直播。"
+        },
+        {
+          "chapter": "设置本群通知",
+          "example": {
+            "group_id": 20001,
+            "items": [
+              {
+                "avatar_url": "",
+                "checked_at": "2026-10-28T12:00:00Z",
+                "group_id": 20001,
+                "live_status": 0,
+                "name": "演示主播",
+                "push_live": true,
+                "push_live_end": true,
+                "room_id": 610001,
+                "short_id": 1001,
+                "uid": 510001
+              }
+            ],
+            "target": "https://live.bilibili.com/610001"
+          },
+          "target": "view.subscriptions.settings",
+          "text": "本群可选择通知卡片风格、开播和下播 AI 回复，以及新订阅的默认推送开关。保存后即时生效；新订阅默认值不修改列表里已有订阅的开关，全局配置也不会覆盖已保存的群设置。"
+        },
+        {
+          "chapter": "确认监听健康",
+          "example": {
+            "group_id": 20001,
+            "items": [
+              {
+                "avatar_url": "",
+                "checked_at": "2026-10-28T12:00:00Z",
+                "group_id": 20001,
+                "live_status": 0,
+                "name": "演示主播",
+                "push_live": true,
+                "push_live_end": true,
+                "room_id": 610001,
+                "short_id": 1001,
+                "uid": 510001
+              }
+            ],
+            "target": "https://live.bilibili.com/610001"
+          },
+          "target": "view.subscriptions.health-panel",
+          "text": "最后查看轮询是否运行、最近检查和成功时间、成功与失败数量。首次检查只记录基线，之后状态变化才推送；看完演示不代表真实订阅或外部连接已经完成。"
         }
       ],
-      "title": "开始监听"
+      "title": "从零添加订阅"
+    },
+    {
+      "completion_action": null,
+      "id": "config-form-basics",
+      "steps": [
+        {
+          "chapter": "打开初始表单",
+          "example": {},
+          "form": "start",
+          "target": "config",
+          "text": "在插件管理选择 streaming_parser，再打开配置表单。初始表单带有安全默认值，文本与凭据可以留空；不是把每个字段都删空。本演示始终使用合成配置，不读取你的真实配置。"
+        },
+        {
+          "chapter": "填写文本",
+          "example": {
+            "cookie": "",
+            "user_agent": "NeoBot tutorial/1.0"
+          },
+          "form": "edit",
+          "target": "config.user_agent",
+          "text": "先填写一个文本字段。这里用 NeoBot tutorial/1.0 演示浏览器标识；实际不需要定制时可以留空。Cookie 是只写凭据，教程不会填写或展示真实值。"
+        },
+        {
+          "chapter": "填写检查间隔",
+          "example": {
+            "cookie": "",
+            "poll_interval_seconds": 30,
+            "user_agent": "NeoBot tutorial/1.0"
+          },
+          "form": "edit",
+          "target": "config.poll_interval_seconds",
+          "text": "接着把检查间隔设为 30 秒。上一步的文本仍保留在同一张样例表单里；数字输入有范围限制，单位是秒。"
+        },
+        {
+          "chapter": "选择默认行为",
+          "example": {
+            "cookie": "",
+            "default_ai_reply_live": false,
+            "poll_interval_seconds": 30,
+            "user_agent": "NeoBot tutorial/1.0"
+          },
+          "form": "edit",
+          "target": "config.default_ai_reply_live",
+          "text": "关闭默认开播 AI 回复，表示新群默认只接收卡片，不额外请求 AI。这是全局默认，不会覆盖已经保存的群设置；其他默认值可以先保持不变。"
+        },
+        {
+          "chapter": "查看校验错误",
+          "example": {
+            "cookie": "",
+            "default_ai_reply_live": false,
+            "poll_interval_seconds": 10,
+            "user_agent": "NeoBot tutorial/1.0"
+          },
+          "form": "validate",
+          "target": "config.poll_interval_seconds",
+          "text": "如果误填为 10 秒，校验会指出它小于最小值 15。此时不能继续保存；不要靠切到 TOML 绕开校验，真实保存仍会由服务端校验。"
+        },
+        {
+          "chapter": "修正后检查",
+          "example": {
+            "cookie": "",
+            "default_ai_reply_live": false,
+            "poll_interval_seconds": 30,
+            "user_agent": "NeoBot tutorial/1.0"
+          },
+          "form": "edit",
+          "target": "config.poll_interval_seconds",
+          "text": "把检查间隔改回 30 秒。文本和开关保持之前的输入，只修正有问题的字段。"
+        },
+        {
+          "chapter": "确认配置有效",
+          "example": {
+            "cookie": "",
+            "default_ai_reply_live": false,
+            "poll_interval_seconds": 30,
+            "user_agent": "NeoBot tutorial/1.0"
+          },
+          "form": "validate",
+          "target": "config",
+          "text": "核对全部字段及其单位，再检查样例校验结果。这里的校验仅用于演示，真实保存时还会进行服务端模型校验和版本冲突检查。"
+        },
+        {
+          "chapter": "保存配置",
+          "example": {
+            "cookie": "",
+            "default_ai_reply_live": false,
+            "poll_interval_seconds": 30,
+            "user_agent": "NeoBot tutorial/1.0"
+          },
+          "form": "save",
+          "target": "config",
+          "text": "确认后使用底部保存并重载。舞台展示的是保存动作，不会向真实配置接口发送请求，也不会替你重启进程。"
+        },
+        {
+          "chapter": "确认保存与生效",
+          "example": {
+            "cookie": "",
+            "default_ai_reply_live": false,
+            "poll_interval_seconds": 30,
+            "user_agent": "NeoBot tutorial/1.0"
+          },
+          "form": "saved",
+          "target": "config",
+          "text": "演示结束后返回真实配置表单再操作。保存成功不等于所有配置立即生效：该插件的全局配置需要重启 NeoBot，请查看全局通知中的实际结果；插件页面里的群设置和订阅操作则即时生效。"
+        }
+      ],
+      "title": "从零填写配置"
     },
     {
       "completion_action": null,
@@ -1242,58 +1597,19 @@
     }
   ],
   "schema_version": 1,
-  "settings": [
+  "views": [
     {
-      "actions": [
-        {
-          "action": "subscriptions.resolve",
-          "display": "summary",
-          "label": "识别"
-        },
-        {
-          "action": "subscriptions.preview",
-          "display": "html",
-          "label": "预览通知"
-        },
-        {
-          "action": "subscriptions.health",
-          "display": "summary",
-          "label": "刷新状态"
-        }
+      "anchors": [
+        "group",
+        "target",
+        "preview",
+        "start",
+        "status",
+        "settings",
+        "health-panel"
       ],
-      "collapsed": false,
-      "description": "选择接收群，识别并预览后开始监听。订阅操作成功后立即生效，无需再保存底部的全局配置。",
-      "edit_action": "subscriptions.toggle",
-      "fields": [
-        {
-          "control": "select",
-          "description": "只列出当前机器人已加入的群。",
-          "name": "group_id",
-          "options": {
-            "action": "subscriptions.groups",
-            "items": "items",
-            "label": "name",
-            "value": "group_id"
-          },
-          "placeholder": ""
-        },
-        {
-          "control": "auto",
-          "description": "支持房间号、短号和 uid: 写法。",
-          "name": "target",
-          "options": null,
-          "placeholder": "粘贴直播间或 UP 主空间链接"
-        }
-      ],
+      "entry": "web/subscriptions/index.html",
       "id": "subscriptions",
-      "input_action": "subscriptions.create",
-      "require_action": "subscriptions.preview",
-      "resource": "subscriptions",
-      "submit_label": "开始监听",
-      "switch_fields": [
-        "push_live",
-        "push_live_end"
-      ],
       "title": "直播订阅"
     }
   ]

@@ -73,7 +73,7 @@ function leavingIsBlocked() {
 }
 
 async function leaveConfig() {
-  await act(async () => screen.getByRole('button', { name: '业务设置保存' }).focus());
+  await act(async () => screen.getByRole('tab', { name: '插件页面' }).focus());
 }
 
 async function openManual() {
@@ -97,6 +97,28 @@ beforeEach(() => {
 });
 
 describe('插件设置与原编辑会话的恢复', () => {
+  it('配置和插件页面独立导航，键盘切换保留配置输入并暂停隐藏页面', async () => {
+    render(<Plugins />);
+    const input = await screen.findByRole('textbox', { name: 'note' });
+    const configTab = screen.getByRole('tab', { name: '配置表单' });
+    const pageTab = await screen.findByRole('tab', { name: '插件页面' });
+    expect(configTab).toHaveAttribute('aria-selected', 'true');
+    expect(vi.mocked(PluginSettingsViews).mock.lastCall![0].suspended).toBe(true);
+    configTab.focus();
+    fireEvent.keyDown(configTab, { key: 'End' });
+    expect(pageTab).toHaveFocus();
+    expect(pageTab).toHaveAttribute('aria-selected', 'true');
+    expect(screen.queryByRole('textbox', { name: 'note' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '保存并重载' })).not.toBeInTheDocument();
+    expect(vi.mocked(PluginSettingsViews).mock.lastCall![0].suspended).toBe(false);
+    const pageControl = screen.getByRole('button', { name: '业务设置保存' });
+    fireEvent.keyDown(pageTab, { key: 'Home' });
+    expect(configTab).toHaveFocus();
+    expect(screen.getByRole('textbox', { name: 'note' })).toBe(input);
+    expect(pageControl).toBeInTheDocument();
+    expect(vi.mocked(PluginSettingsViews).mock.lastCall![0].suspended).toBe(true);
+  });
+
   it('输入回到保存基线后，离开原编辑区释放会话并允许独立设置保存', async () => {
     render(<Plugins />);
     const input = await screen.findByRole('textbox', { name: 'note' });
@@ -107,6 +129,7 @@ describe('插件设置与原编辑会话的恢复', () => {
     expect(leavingIsBlocked()).toBe(true);
     await leaveConfig();
     expect(leavingIsBlocked()).toBe(false);
+    await userEvent.click(screen.getByRole('tab', { name: '插件页面' }));
     await userEvent.click(screen.getByRole('button', { name: '业务设置保存' }));
     expect(api.pluginConfigSave).toHaveBeenCalledWith('demo', {
       mode: 'form',
@@ -114,6 +137,7 @@ describe('插件设置与原编辑会话的恢复', () => {
       revision,
       reload: true,
     });
+    await userEvent.click(screen.getByRole('tab', { name: '配置表单' }));
     expect(await screen.findByRole('textbox', { name: 'note' })).toHaveValue('来自设置');
   });
 
@@ -136,8 +160,10 @@ describe('插件设置与原编辑会话的恢复', () => {
     await leaveConfig();
     expect(input).toHaveValue(text);
     expect(leavingIsBlocked()).toBe(true);
+    await userEvent.click(screen.getByRole('tab', { name: '插件页面' }));
     await userEvent.click(screen.getByRole('button', { name: '业务设置保存' }));
     expect(api.pluginConfigSave).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('tab', { name: '配置表单' }));
     expect(screen.getByRole('textbox', { name: kind === '非法 JSON' ? 'payload' : '新增条目的键' })).toBe(
       input,
     );
@@ -151,8 +177,10 @@ describe('插件设置与原编辑会话的恢复', () => {
     fireEvent.input(input, { target: { value: '原值' } });
     await leaveConfig();
     expect(leavingIsBlocked()).toBe(true);
+    await userEvent.click(screen.getByRole('tab', { name: '插件页面' }));
     await userEvent.click(screen.getByRole('button', { name: '业务设置保存' }));
     expect(api.pluginConfigSave).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('tab', { name: '配置表单' }));
     fireEvent.compositionEnd(input, { data: '原值' });
     input.focus();
     await leaveConfig();
@@ -208,6 +236,7 @@ describe('插件设置与原编辑会话的恢复', () => {
   it('鉴权尚未探测完成时移除设置管理权限并拒绝配置保存', async () => {
     auth.canManage = null;
     render(<Plugins />);
+    await userEvent.click(await screen.findByRole('tab', { name: '插件页面' }));
     const button = await screen.findByRole('button', { name: '业务设置保存' });
     const settings = vi.mocked(PluginSettingsViews).mock.lastCall![0];
     expect(settings.surface.permissions).toEqual(['read']);

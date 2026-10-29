@@ -163,6 +163,7 @@ class DashboardServer:
         self.runtime_config: DashboardConfig = config
         self._bot_cache: dict[str, Any] = {}
         self._bot_cache_at = 0.0
+        self._bot_cache_connected: bool | None = None
         self._bot_lock = asyncio.Lock()
         #: 依赖面板的插件注册进来的 HTTP 扩展（星舰游戏等）
         self._extensions: dict[str, Any] = {}
@@ -697,17 +698,26 @@ class DashboardServer:
         response.del_cookie(COOKIE_NAME, path=self.base_path or "/")
 
     async def bot_info(self) -> dict[str, Any]:
-        """获取机器人信息（带缓存）。"""
+        """缓存身份信息，但连接／断开后下一次读取必须立即重新探测。"""
         ttl = float(self.runtime_config.bot_info_cache_ttl)
+        connected = bool(getattr(self.adapter, "connected", False))
         now = time.time()
-        if ttl > 0 and self._bot_cache and now - self._bot_cache_at < ttl:
+        if ttl > 0 and self._bot_cache and self._bot_cache_connected == connected and now - self._bot_cache_at < ttl:
             return self._bot_cache
         async with self._bot_lock:
-            if ttl > 0 and self._bot_cache and time.time() - self._bot_cache_at < ttl:
+            connected = bool(getattr(self.adapter, "connected", False))
+            if (
+                ttl > 0
+                and self._bot_cache
+                and self._bot_cache_connected == connected
+                and time.time() - self._bot_cache_at < ttl
+            ):
                 return self._bot_cache
             info = await self._probe_bot()
             self._bot_cache = info
             self._bot_cache_at = time.time()
+            # 保留探测前的连接状态；探测期间若发生变化，下一次读取仍会失效。
+            self._bot_cache_connected = connected
             return info
 
     async def _probe_bot(self) -> dict[str, Any]:

@@ -20,6 +20,8 @@ export interface PluginGuideStep {
   chapter?: string;
   example?: Record<string, unknown>;
   command?: { text: string; context: string; reply?: string };
+  /** 完整配置表单的有限演示阶段；不会保存真实配置。 */
+  form?: 'start' | 'edit' | 'validate' | 'save' | 'saved';
   mode: 'live' | 'demo';
 }
 

@@ -6,7 +6,6 @@ import PluginViewFrame from './PluginViewFrame';
 import PluginCommandScene from './PluginCommandScene';
 import PluginConfigScene from './PluginConfigScene';
 import { ponderGeometry } from './ponderGeometry';
-import { PluginSettingsContent } from './PluginDeclaredSettings';
 
 interface Props {
   pluginId: string;
@@ -25,9 +24,6 @@ export default function PluginPonderStage({ pluginId, surface, guide, step, view
   const view = step.command ? undefined : views.find((item) => step.target.startsWith(`view.${item.id}.`));
   const action = surface.contract.actions.find((item) => step.target === `action.${item.id}`);
   const resource = surface.contract.resources.find((item) => step.target === `resource.${item.id}`);
-  const settings = surface.contract.settings?.find(
-    (item) => step.target === `settings.${item.id}` || step.target.startsWith(`settings.${item.id}.`),
-  );
   const anchor = view ? step.target.slice(`view.${view.id}.`.length) : '';
   const rectangle = view ? rectangles[anchor] : control;
   // iframe 已经裁出局部滚动区中的可见范围，不能再向外扩展。
@@ -41,14 +37,23 @@ export default function PluginPonderStage({ pluginId, surface, guide, step, view
   useLayoutEffect(() => {
     const stage = viewport.current;
     if (!stage) return;
-    const target = view ? null : stage.querySelector<HTMLElement>('[data-ponder-control]');
+    const configPath =
+      step.form && step.target.startsWith('config.') && step.form !== 'save' && step.form !== 'saved'
+        ? step.target.slice('config.'.length)
+        : undefined;
+    const configControl = configPath
+      ? Array.from(stage.querySelectorAll<HTMLElement>('[data-field-path]')).find(
+          (element) => element.dataset.fieldPath === configPath,
+        )
+      : undefined;
+    const target = view ? null : (configControl ?? stage.querySelector<HTMLElement>('[data-ponder-control]'));
     const measure = (reveal = false) => {
       setSize({ width: stage.clientWidth, height: stage.clientHeight });
       if (!target) {
         setControl(undefined);
         return;
       }
-      const scroll = settings && stage.querySelector<HTMLElement>('.ponder-synthetic-stage');
+      const scroll = stage.querySelector<HTMLElement>('.ponder-synthetic-stage');
       if (reveal && scroll) {
         const area = scroll.getBoundingClientRect();
         const item = target.getBoundingClientRect();
@@ -79,29 +84,13 @@ export default function PluginPonderStage({ pluginId, surface, guide, step, view
       window.removeEventListener('resize', onResize);
       stage.removeEventListener('scroll', onScroll, true);
     };
-  }, [step, view, settings]);
+  }, [step, view]);
 
   return (
     <div className="ponder-stage-viewport" ref={viewport} data-reduced-motion={reducedMotion || undefined}>
       {step.command ? (
         <PluginCommandScene command={step.command} />
-      ) : settings ? (
-        <div className="ponder-synthetic-stage">
-          <div className="ponder-stage-heading">
-            <span>{settings.title}</span>
-            <span>样例</span>
-          </div>
-          <div className="ponder-stage-content ponder-settings-content">
-            <PluginSettingsContent
-              surface={surface}
-              group={settings}
-              run={async () => null}
-              demo={guide.demo}
-              step={step}
-            />
-          </div>
-        </div>
-      ) : step.target.startsWith('config.') ? (
+      ) : step.target === 'config' || step.target.startsWith('config.') ? (
         <PluginConfigScene
           pluginId={pluginId}
           schema={surface.contract.config}

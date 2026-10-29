@@ -3,22 +3,55 @@
 from dataclasses import asdict
 from typing import Any
 
-from neobot_adapter.model.response import GetGroupListResponse
+from neobot_adapter.model.response import GetGroupListResponse, GetLoginInfoResponse
 from pydantic import ValidationError
 
 from neobot_modloader import ActionError, Plugin
 
+from . import db
 from . import panel_models as models
 from .bilibili.errors import BilibiliAPIError, BilibiliTransportError
 from .bilibili.urls import live_room_page_url
 from .notify import build_card_values, build_fallback_text
 from .poller import EVENT_LIVE
+from .settings_commands import group_defaults, match_style
 from .subscriptions import SubscriptionService
 
 
 async def groups(state: Any) -> models.Groups:
     try:
         raw_response = await state.ctx.adapter.call_api("get_group_list", {})
+        response = GetGroupListResponse.model_validate(raw_response)
+        if (
+            response.status != "ok"
+            or response.retcode not in (None, 0)
+            or response.data is None
+        ):
+            raise ActionError(
+                "group_list_unavailable", "群列表读取失败，请检查机器人连接后重试。"
+            )
+        if not response.data:
+            return models.Groups(items=[])
+        # RuntimeAdapter 不公开 self_id；有群可选时再通过标准接口读取账号。
+        raw_login = await state.ctx.adapter.call_api("get_login_info", {})
+        login = GetLoginInfoResponse.model_validate(raw_login)
+        if (
+            login.status != "ok"
+            or login.retcode not in (None, 0)
+            or login.data is None
+            or login.data.user_id is None
+        ):
+            raise ActionError(
+                "group_list_unavailable", "群列表读取失败，请检查机器人连接后重试。"
+            )
+    except ActionError:
+        raise
+    except ValidationError:
+        # ValidationError 会带原始输入，不能把适配器响应写入日志。
+        state.ctx.logger.warning("机器人群目录响应结构无效，请检查适配器返回格式。")
+        raise ActionError(
+            "group_list_unavailable", "暂时无法读取机器人所在的群，请检查机器人连接。"
+        ) from None
     except Exception as exc:
         # 外部异常文本可能包含请求地址或凭据，只记录阶段和异常类型。
         state.ctx.logger.warning(
@@ -27,23 +60,7 @@ async def groups(state: Any) -> models.Groups:
         raise ActionError(
             "group_list_unavailable", "暂时无法读取机器人所在的群，请检查机器人连接。"
         ) from None
-    try:
-        response = GetGroupListResponse.model_validate(raw_response)
-    except ValidationError:
-        # ValidationError 会带原始输入，不能把群目录响应写入日志。
-        state.ctx.logger.warning("机器人群目录响应结构无效，请检查适配器返回格式。")
-        raise ActionError(
-            "group_list_unavailable", "暂时无法读取机器人所在的群，请检查机器人连接。"
-        ) from None
-    if (
-        response.status != "ok"
-        or response.retcode not in (None, 0)
-        or response.data is None
-    ):
-        raise ActionError(
-            "group_list_unavailable", "群列表读取失败，请检查机器人连接后重试。"
-        )
-    bot_id = str(state.ctx.adapter.self_id or "")
+    bot_id = str(login.data.user_id)
     return models.Groups(
         items=[
             models.GroupChoice(
@@ -85,6 +102,48 @@ def register_surface(plugin: Plugin, state: Any) -> None:
     )
     async def list_groups(values, invocation):
         return await groups(state)
+
+    @plugin.action(
+        "groups.settings.get",
+        title="查看群设置",
+        permission="read",
+        input_model=models.GroupSettingsInput,
+        output_model=models.GroupSettings,
+    )
+    async def get_group_settings(values, invocation):
+        # 本地读取不依赖群目录，也不把继承的默认值写入数据库。
+        async with state.database.session() as session:
+            row = await db.get_group_setting(session, values.group_id)
+            setting = db.setting_view(row)
+        effective = (
+            asdict(setting)
+            if setting is not None
+            else {"group_id": values.group_id, **group_defaults(state.config)}
+        )
+        # 兼容旧配置的风格写法，只规范返回值，不回写或随机挑选固定风格。
+        effective["card_style"] = match_style(effective["card_style"]) or "random"
+        return models.GroupSettings(**effective, inherited=setting is None)
+
+    @plugin.action(
+        "groups.settings.update",
+        title="保存群设置",
+        permission="manage",
+        input_model=models.GroupSettingsUpdateInput,
+        output_model=models.GroupSettings,
+    )
+    async def update_group_settings(values, invocation):
+        await require_group(state, values.group_id)
+        async with state.database.transaction() as session:
+            setting = await db.ensure_group_setting(
+                session, values.group_id, group_defaults(state.config)
+            )
+            for field, value in values.model_dump(exclude={"group_id"}).items():
+                setattr(setting, field, value)
+            # 只改群设置；已有订阅的推送开关保持原样。
+            result = models.GroupSettings(
+                **asdict(db.setting_view(setting)), inherited=False
+            )
+        return result
 
     @plugin.action(
         "subscriptions.resolve",
@@ -232,37 +291,17 @@ def register_surface(plugin: Plugin, state: Any) -> None:
         create_action="subscriptions.create",
         delete_action="subscriptions.remove",
     )
-    plugin.settings(
+    plugin.view(
         "subscriptions",
         title="直播订阅",
-        description="选择接收群，识别并预览后开始监听。订阅操作成功后立即生效，无需再保存底部的全局配置。",
-        input_action="subscriptions.create",
-        submit_label="开始监听",
-        require_action="subscriptions.preview",
-        fields=[
-            {
-                "name": "group_id",
-                "control": "select",
-                "description": "只列出当前机器人已加入的群。",
-                "options": {
-                    "action": "subscriptions.groups",
-                    "items": "items",
-                    "value": "group_id",
-                    "label": "name",
-                },
-            },
-            {
-                "name": "target",
-                "placeholder": "粘贴直播间或 UP 主空间链接",
-                "description": "支持房间号、短号和 uid: 写法。",
-            },
+        entry="web/subscriptions/index.html",
+        anchors=[
+            "group",
+            "target",
+            "preview",
+            "start",
+            "status",
+            "settings",
+            "health-panel",
         ],
-        actions=[
-            {"action": "subscriptions.resolve", "label": "识别"},
-            {"action": "subscriptions.preview", "label": "预览通知", "display": "html"},
-            {"action": "subscriptions.health", "label": "刷新状态"},
-        ],
-        resource="subscriptions",
-        edit_action="subscriptions.toggle",
-        switch_fields=["push_live", "push_live_end"],
     )

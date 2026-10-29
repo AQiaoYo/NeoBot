@@ -167,3 +167,27 @@ def test_optional_scalar_types_stay_typed_and_unknown_structures_are_lossless():
     assert described["interval"]["type"] == "int"
     assert described["arbitrary"]["kind"] == "json"
     assert described["arbitrary"]["value"] == [1, "one"]
+
+
+def test_text_hints_cannot_override_fixed_types_or_secret_controls():
+    class Config(BaseModel):
+        endpoint: str = Field(
+            default="",
+            json_schema_extra={"single_line": True, "placeholder": "填写服务地址", "kind": "html"},
+        )
+        retries: int = Field(default=3, json_schema_extra={"single_line": True, "placeholder": "不适用"})
+        credential: SecretStr = Field(
+            default=SecretStr("synthetic-private"),
+            json_schema_extra={"single_line": False, "placeholder": "不得公开"},
+        )
+
+    described = fields(Config)
+    assert described["endpoint"]["single_line"] is True
+    assert described["endpoint"]["placeholder"] == "填写服务地址"
+    assert described["endpoint"]["kind"] == "scalar"
+    assert described["retries"]["type"] == "int"
+    assert "single_line" not in described["retries"]
+    assert "placeholder" not in described["retries"]
+    assert described["credential"]["sensitive"] is True
+    assert described["credential"]["value"] == ""
+    assert "single_line" not in described["credential"]

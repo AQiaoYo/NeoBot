@@ -17,10 +17,8 @@ from .actions import (
     validate_id,
     validate_model,
 )
-from .guides import guide_command_errors
+from .guides import guide_command_errors, guide_form_errors
 from .schema import export_model_schema, schema_field_paths
-from .settings import SettingsDefinition, make_settings
-from .settings_validation import settings_targets, validate_settings
 
 if TYPE_CHECKING:
     from neobot_modloader.plugin import Plugin
@@ -63,6 +61,7 @@ class GuideStep:
     chapter: str | None = None
     example: dict[str, Any] | None = None
     command: dict[str, str] | None = None
+    form: str | None = None
 
     def describe(self) -> dict[str, Any]:
         result = {"target": self.target, "text": self.text}
@@ -72,6 +71,8 @@ class GuideStep:
             result["example"] = _json_copy(self.example)
         if self.command is not None:
             result["command"] = _json_copy(self.command)
+        if self.form is not None:
+            result["form"] = self.form
         return result
 
 
@@ -143,13 +144,16 @@ def _text(value: Any, *, field: str) -> str:
     return value
 
 
-def _guide_step(step: Mapping[str, Any]) -> GuideStep:
+def _guide_step(step: Mapping[str, Any], location: str) -> GuideStep:
     if (
         not isinstance(step, Mapping)
         or not {"target", "text"} <= set(step)
-        or set(step) - {"target", "text", "chapter", "example", "command"}
+        or set(step) - {"target", "text", "chapter", "example", "command", "form"}
     ):
         raise ValueError("教程步骤必须包含 target 和 text")
+    errors = guide_form_errors(step, location)
+    if errors:
+        raise ValueError("；".join(errors))
     chapter = _text(step["chapter"], field="教程章节") if "chapter" in step else None
     example = step.get("example")
     if example is not None and not isinstance(example, dict):
@@ -165,6 +169,7 @@ def _guide_step(step: Mapping[str, Any]) -> GuideStep:
         chapter,
         _json_copy(example),
         _json_copy(command),
+        step.get("form"),
     )
 
 
@@ -198,43 +203,6 @@ class PluginSurface:
         self._resources: dict[str, ResourceDefinition] = {}
         self._guides: dict[str, GuideDefinition] = {}
         self._views: dict[str, ViewDefinition] = {}
-        self._settings: dict[str, SettingsDefinition] = {}
-
-    def settings(
-        self,
-        id: str,
-        *,
-        title: str,
-        input_action: str,
-        description: str = "",
-        collapsed: bool = False,
-        submit_label: str = "",
-        require_action: str | None = None,
-        fields: Sequence[Mapping[str, Any]] = (),
-        actions: Sequence[Mapping[str, Any]] = (),
-        resource: str | None = None,
-        edit_action: str | None = None,
-        switch_fields: Sequence[str] = (),
-    ) -> SettingsDefinition:
-        _segment(id, "设置")
-        if id in self._settings:
-            raise ValueError("设置分组 ID 重复")
-        definition = make_settings(
-            id,
-            title=title,
-            input_action=input_action,
-            description=description,
-            collapsed=collapsed,
-            submit_label=submit_label,
-            require_action=require_action,
-            fields=fields,
-            actions=actions,
-            resource=resource,
-            edit_action=edit_action,
-            switch_fields=switch_fields,
-        )
-        self._settings[id] = definition
-        return definition
 
     def view(self, id: str, *, title: str, entry: str, anchors: Sequence[str] = ()) -> ViewDefinition:
         _segment(id, "页面")
@@ -317,7 +285,7 @@ class PluginSurface:
             raise ValueError(f"教程 ID 重复: {id}")
         if not isinstance(steps, Sequence) or isinstance(steps, (str, bytes)) or not steps:
             raise ValueError("教程必须至少声明一个步骤")
-        copied = tuple(_guide_step(step) for step in steps)
+        copied = tuple(_guide_step(step, f"guides.{id}.steps[{index}]") for index, step in enumerate(steps))
         if completion_action is not None:
             validate_id(completion_action, kind="教程完成检查")
         guide = GuideDefinition(id, _text(title, field="教程标题"), copied, completion_action, _demo(demo))
@@ -341,7 +309,9 @@ class PluginSurface:
             if action.permission == "read":
                 raise SurfaceContractError(f"资源 {resource.id} 的修改必须引用 operate 或 manage 动作: {action_id}")
 
-    def _guide_target_exists(self, reference: str, fields: set[str]) -> bool:
+    def _guide_target_exists(self, reference: str, fields: set[str], has_config: bool) -> bool:
+        if reference == "config":
+            return has_config
         kind, separator, target = reference.partition(".")
         if not separator:
             return False
@@ -351,24 +321,22 @@ class PluginSurface:
             return target in self._actions
         if kind == "resource":
             return target in self._resources
-        if kind == "settings":
-            groups = {name: group.describe() for name, group in self._settings.items()}
-            actions = {name: action.describe() for name, action in self._actions.items()}
-            return reference in settings_targets(groups, actions)
         if kind != "view":
             return False
         view_id, _, anchor = target.partition(".")
         view = self._views.get(view_id)
         return view is not None and anchor in view.anchors
 
-    def _validate_guide(self, guide: GuideDefinition, fields: set[str]) -> None:
+    def _validate_guide(self, guide: GuideDefinition, fields: set[str], has_config: bool) -> None:
         if guide.completion_action is not None:
             self._require_action(guide.completion_action, owner=f"教程 {guide.id} 的完成检查", read_only=True)
         if guide.demo is not None:
             for action in guide.demo.get("actions", {}):
                 self._require_action(action, owner=f"教程 {guide.id} 的演示")
-        for step in guide.steps:
-            if not self._guide_target_exists(step.target, fields):
+        for index, step in enumerate(guide.steps):
+            if not self._guide_target_exists(step.target, fields, has_config):
+                if step.form is not None or step.target == "config":
+                    raise SurfaceContractError(f"guides.{guide.id}.steps[{index}].target 无效")
                 raise SurfaceContractError(f"教程 {guide.id} 引用了未知目标: {step.target}")
 
     def _validate(self, plugin: Plugin) -> dict[str, Any] | None:
@@ -379,15 +347,8 @@ class PluginSurface:
         fields = schema_field_paths(schema)
         for resource in self._resources.values():
             self._validate_resource(resource)
-        errors = validate_settings(
-            {name: group.describe() for name, group in self._settings.items()},
-            {name: action.describe() for name, action in self._actions.items()},
-            {name: resource.describe() for name, resource in self._resources.items()},
-        )
-        if errors:
-            raise SurfaceContractError("；".join(errors))
         for guide in self._guides.values():
-            self._validate_guide(guide, fields)
+            self._validate_guide(guide, fields, schema is not None)
         return schema
 
     def describe(self, plugin: Plugin) -> dict[str, Any]:
@@ -402,8 +363,6 @@ class PluginSurface:
         }
         if self._views:
             result["views"] = [view.describe() for view in self._views.values()]
-        if self._settings:
-            result["settings"] = [group.describe() for group in self._settings.values()]
         return result
 
     async def invoke(self, plugin: Plugin, action_id: str, payload: Any, invocation: ActionInvocation) -> Any:

@@ -55,6 +55,7 @@ render_scale = 2.0
 [sdk]
 version = 1
 contract = "plugin.contract.json"
+pages = ["web/subscriptions/index.html"]
 
 [sdk.tests]
 path = "tests/acceptance"

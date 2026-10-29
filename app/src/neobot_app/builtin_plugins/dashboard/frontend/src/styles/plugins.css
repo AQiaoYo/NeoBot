@@ -453,40 +453,19 @@
 .plugin-settings-views {
   display: grid;
   gap: 24px;
-  margin: 4px 0 24px;
+  margin: 0;
 }
 .plugin-settings-view {
   min-width: 0;
-  border-bottom: 1px solid var(--border-soft);
-  padding-bottom: 20px;
 }
-.plugin-settings-view > summary {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 44px;
-  padding: 8px 0;
-  list-style: none;
+.plugin-settings-view + .plugin-settings-view {
+  border-top: 1px solid var(--border-soft);
+  padding-top: 24px;
+}
+.plugin-settings-view > h3 {
+  margin: 0 0 12px;
   font-size: 14px;
   font-weight: 650;
-  cursor: pointer;
-}
-.plugin-settings-view > summary::-webkit-details-marker {
-  display: none;
-}
-.plugin-settings-view > summary > svg {
-  flex-shrink: 0;
-  color: var(--muted);
-}
-.plugin-settings-view[open] > summary > svg {
-  transform: rotate(90deg);
-}
-.plugin-settings-view > summary:focus-visible {
-  outline: 2px solid var(--brand);
-  outline-offset: -3px;
-}
-.plugin-settings-view[open] > summary {
-  margin-bottom: 12px;
 }
 .plugin-settings-frame-wrap {
   min-width: 0;
@@ -503,13 +482,19 @@
   padding: 0;
   overflow: hidden;
 }
-.plugin-editor-scroll.is-source > :not(.config-body) {
+.plugin-editor-scroll.is-source > .plugin-config-panel {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+.plugin-editor-scroll.is-source .plugin-config-panel > :not(.config-body) {
   flex-shrink: 0;
   max-height: 25%;
   margin: 12px 20px;
   overflow: auto;
 }
-.plugin-editor-scroll.is-source > .config-body {
+.plugin-editor-scroll.is-source .config-body {
   display: flex;
   flex: 1;
   flex-direction: column;

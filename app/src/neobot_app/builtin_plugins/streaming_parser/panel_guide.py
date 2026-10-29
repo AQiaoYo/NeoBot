@@ -6,6 +6,7 @@ from pathlib import Path
 from neobot_modloader import Plugin
 
 from .notify import build_card_values
+from .panel_form_guide import register_config_form_guide
 from .poller import EVENT_LIVE
 from .render import CardRenderer
 
@@ -77,6 +78,24 @@ def demonstration() -> dict:
     }
     return {
         "actions": {
+            "groups.settings.get": {
+                "group_id": 20001,
+                "card_style": "minimal",
+                "ai_reply_live": False,
+                "ai_reply_live_end": False,
+                "default_push_live": True,
+                "default_push_live_end": True,
+                "inherited": True,
+            },
+            "groups.settings.update": {
+                "group_id": 20001,
+                "card_style": "minimal",
+                "ai_reply_live": False,
+                "ai_reply_live_end": False,
+                "default_push_live": True,
+                "default_push_live_end": True,
+                "inherited": False,
+            },
             "subscriptions.groups": {
                 "items": [{"group_id": 20001, "name": "演示交流组", "bot_id": "10001"}]
             },
@@ -101,8 +120,9 @@ def demonstration() -> dict:
 
 
 def register_guide(plugin: Plugin) -> None:
-    # 普通设置和思索均由宿主依据同一声明渲染，无需作者维护页面锚点。
+    # 教程复用真实 iframe 页面，演示会话只读取合成数据，不执行写动作。
     _register_start_guide(plugin)
+    register_config_form_guide(plugin)
     _register_chat_guide(plugin)
     _register_config_guide(plugin)
 
@@ -114,57 +134,59 @@ READ_CONTEXT = "在接收通知的同一个 QQ 群里，先 @机器人，再发�
 
 
 def _register_start_guide(plugin: Plugin) -> None:
+    sample = {"group_id": 20001, "target": "https://live.bilibili.com/610001"}
+    item = demonstration()["actions"]["subscriptions.create"]["item"]
     plugin.guide(
         "first-subscription",
-        title="开始监听",
+        title="从零添加订阅",
         steps=[
             {
-                "chapter": "打开直播订阅设置",
-                "target": "settings.subscriptions.group_id",
-                "text": "入口是插件管理 → streaming_parser → 配置表单 → 直播订阅。选择接收通知的群；这里只列出当前机器人加入的群。说明书使用合成样例，真实群目录以设置里的列表为准。",
-                "example": {
-                    "group_id": 20001,
-                    "target": "https://live.bilibili.com/610001",
-                },
+                "chapter": "打开空白订阅表单",
+                "target": "view.subscriptions.group",
+                "text": "选择插件页面后直接看到订阅表单，不需要再展开。开始时接收群和直播间都未填写；教程只使用合成群和主播，不会读取或改动你的订阅。",
+                "example": {"group_id": 0, "target": ""},
             },
             {
-                "chapter": "识别要监听的主播",
-                "target": "settings.subscriptions.target",
-                "text": "在直播间或账号链接中填写目标，再点识别核对主播。支持房间号、短号、直播间链接、UP 主空间链接和 uid: 写法。此时还没有建立订阅。",
-                "example": {
-                    "group_id": 20001,
-                    "target": "https://live.bilibili.com/610001",
-                },
+                "chapter": "选择接收通知的群",
+                "target": "view.subscriptions.group",
+                "text": "先选择接收通知的群。真实页面只列出当前机器人加入的群；没有可选群时请先检查机器人连接和加群状态。这里只选群，还没有建立订阅。",
+                "example": {"group_id": 20001, "target": ""},
             },
             {
-                "chapter": "预览通知内容",
-                "target": "settings.subscriptions.subscriptions.preview",
-                "text": "点预览通知，核对卡片和将要接收通知的群。这里使用实际通知模板，但预览不会建立订阅，也不会往群里发送消息。换群或换目标后需要重新预览。",
-                "example": {
-                    "group_id": 20001,
-                    "target": "https://live.bilibili.com/610001",
-                },
+                "chapter": "填写并识别直播间",
+                "target": "view.subscriptions.target",
+                "text": "再填写直播间链接，点击识别核对主播和房间号。也支持房间号、短号、UP 主空间链接及 uid: 写法。前一步的群选择会保留。",
+                "example": sample,
             },
             {
-                "chapter": "开始监听",
-                "target": "settings.subscriptions.subscriptions.create",
-                "text": "确认预览后点开始监听，立即保存这条订阅，不需要再点页面底部的配置保存。重复添加同一群的同一直播间会更新主播信息，保留已有开播和下播推送开关。",
-                "example": {
-                    "group_id": 20001,
-                    "target": "https://live.bilibili.com/610001",
-                },
+                "chapter": "预览通知",
+                "target": "view.subscriptions.preview",
+                "text": "预览后核对主播、接收群、卡片风格和文字内容。预览不会创建订阅，也不会往群里发送消息；修改群或链接后需要重新预览。",
+                "example": sample,
             },
             {
-                "chapter": "核对订阅与检查状态",
-                "target": "settings.subscriptions.resource",
-                "text": "订阅列表可以调整开播、下播通知，保存该行后立即生效，也可取消监听。刷新状态可查看最近检查时间、监听状态和检查异常。首次检查只记录基线，以后状态变化才推送；说明播放结束不代表真实检查成功。",
-                "example": {
-                    "group_id": 20001,
-                    "target": "https://live.bilibili.com/610001",
-                    "items": [
-                        demonstration()["actions"]["subscriptions.create"]["item"]
-                    ],
-                },
+                "chapter": "确认并开始监听",
+                "target": "view.subscriptions.start",
+                "text": "确认预览后点击开始监听，订阅即时保存，不需要再保存配置表单。同一群重复添加相同直播间会更新主播信息，并保留已有推送开关。",
+                "example": sample,
+            },
+            {
+                "chapter": "检查保存结果",
+                "target": "view.subscriptions.status",
+                "text": "新增记录出现在下方列表，可按群筛选、查看房间与最近直播状态、调整开播和下播推送、取消监听。未首次检查的房间显示未检查，不会冒充正在直播。",
+                "example": {**sample, "items": [item]},
+            },
+            {
+                "chapter": "设置本群通知",
+                "target": "view.subscriptions.settings",
+                "text": "本群可选择通知卡片风格、开播和下播 AI 回复，以及新订阅的默认推送开关。保存后即时生效；新订阅默认值不修改列表里已有订阅的开关，全局配置也不会覆盖已保存的群设置。",
+                "example": {**sample, "items": [item]},
+            },
+            {
+                "chapter": "确认监听健康",
+                "target": "view.subscriptions.health-panel",
+                "text": "最后查看轮询是否运行、最近检查和成功时间、成功与失败数量。首次检查只记录基线，之后状态变化才推送；看完演示不代表真实订阅或外部连接已经完成。",
+                "example": {**sample, "items": [item]},
             },
         ],
         demo=demonstration(),

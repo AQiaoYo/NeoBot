@@ -78,6 +78,28 @@ describe('说明书场景对应真实入口', () => {
     expect(screen.getByText('在真实配置中填写，说明书不展示凭据。')).toBeInTheDocument();
   });
 
+  it('根配置目标渲染完整表单、保留凭据空白，并仅提供禁用的模拟保存', () => {
+    const rendered = scene({
+      target: 'config',
+      text: '模拟保存',
+      form: 'save',
+      example: { default_card_style: 'minimal', enabled: false, cookie: 'private-example-cookie' },
+    });
+    expect(screen.getByLabelText('卡片风格')).toHaveValue('minimal');
+    expect(screen.getByRole('checkbox')).not.toBeChecked();
+    expect(screen.getByRole('spinbutton')).toHaveValue(4);
+    expect(screen.getByLabelText('cookie')).toHaveValue('');
+    expect(screen.queryByDisplayValue('private-example-cookie')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '模拟保存' })).toBeDisabled();
+    expect(rendered.container.querySelector('[data-ponder-control]')).toContainElement(
+      screen.getByRole('button', { name: '模拟保存' }),
+    );
+    expect(rendered.container.querySelector('.ponder-stage-viewport')).toHaveAttribute(
+      'data-reduced-motion',
+      'true',
+    );
+  });
+
   it('聊天步骤明确实际场景和命令，不生成业务表单或发送按钮', () => {
     scene({
       target: 'action.subscribe',

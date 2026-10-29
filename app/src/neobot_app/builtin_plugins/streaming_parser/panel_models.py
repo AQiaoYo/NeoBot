@@ -1,6 +1,7 @@
 """订阅向导的公开输入输出，页面不另行定义一份业务校验。"""
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -15,6 +16,24 @@ class TargetInput(Input):
 
 class GroupInput(Input):
     group_id: int = Field(gt=0, title="接收通知的群")
+
+
+class GroupSettingsInput(GroupInput):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+
+class GroupSettingsUpdateInput(GroupSettingsInput):
+    card_style: Literal["random", "sakura", "neon", "minimal"] = Field(
+        title="通知卡片风格"
+    )
+    ai_reply_live: bool = Field(title="开播后触发 AI 回复")
+    ai_reply_live_end: bool = Field(title="下播后触发 AI 回复")
+    default_push_live: bool = Field(title="新订阅默认发送开播通知")
+    default_push_live_end: bool = Field(title="新订阅默认发送下播通知")
+
+
+class GroupSettings(GroupSettingsUpdateInput):
+    inherited: bool = Field(title="尚未保存群设置，使用插件默认值")
 
 
 class CreateInput(GroupInput, TargetInput):

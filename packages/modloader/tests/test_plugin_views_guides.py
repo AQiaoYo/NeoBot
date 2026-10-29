@@ -87,6 +87,17 @@ def test_unknown_view_anchor_or_demo_action_is_rejected_in_dynamic_and_static_co
     assert any("target" in error for error in validate_contract(document))
 
 
+@pytest.mark.parametrize(
+    "target", ["settings.items", "settings.items.enabled", "settings.items.items.list", "settings.items.resource"]
+)
+def test_removed_settings_targets_are_unknown_even_when_view_and_action_exist(target):
+    plugin = sample_plugin()
+    plugin.view("items", title="条目", entry="web/index.html", anchors=["enabled"])
+    plugin.guide("start", title="开始", steps=[{"target": target, "text": "开始配置"}])
+    with pytest.raises(ValueError, match="未知目标"):
+        plugin.surface.describe(plugin)
+
+
 def test_static_views_require_a_readable_title():
     plugin = sample_plugin()
     plugin.view("items", title="条目", entry="web/index.html", anchors=[])
@@ -189,3 +200,98 @@ def test_demo_is_finite_declarative_data(demo):
     plugin = sample_plugin()
     with pytest.raises(ValueError):
         plugin.guide("start", title="开始", steps=[{"target": "action.items.list", "text": "查看"}], demo=demo)
+
+
+@pytest.mark.parametrize("phase", ["start", "edit", "validate", "save", "saved"])
+@pytest.mark.parametrize("target", ["config", "config.interval"])
+def test_form_walkthrough_exports_independent_snapshots_for_config_model(phase, target):
+    from pydantic import BaseModel
+
+    class Settings(BaseModel):
+        interval: int = 30
+
+    plugin = sample_plugin()
+    plugin.config_model = Settings
+    snapshot = {"interval": 60}
+    plugin.guide(
+        "form",
+        title="填写配置",
+        steps=[{"target": target, "text": "演示配置流程", "form": phase, "example": snapshot}],
+    )
+    snapshot["interval"] = 90
+    contract = plugin.surface.describe(plugin)
+    assert contract["guides"][0]["steps"][0]["form"] == phase
+    assert contract["guides"][0]["steps"][0]["example"] == {"interval": 60}
+    assert validate_contract(contract) == []
+
+
+@pytest.mark.parametrize("phase", [None, True, 1, [], {}, "", "private-invalid-phase"])
+def test_form_phase_rejects_invalid_types_without_echoing_input(phase):
+    plugin = sample_plugin()
+    document = plugin.surface.describe(plugin)
+    document["guides"] = [
+        {"id": "form", "title": "配置", "steps": [{"target": "config", "text": "配置", "form": phase}]}
+    ]
+    with pytest.raises(ValueError) as caught:
+        plugin.guide("form", title="配置", steps=document["guides"][0]["steps"])
+    assert "guides.form.steps[0].form" in str(caught.value)
+    assert "private-invalid-phase" not in str(caught.value)
+    errors = validate_contract(document)
+    assert any("guides.form.steps[0].form" in error for error in errors)
+    assert all("private-invalid-phase" not in error for error in errors)
+
+
+@pytest.mark.parametrize(
+    "step",
+    [
+        {"target": "action.items.list", "text": "查看", "form": "edit"},
+        {"target": "view.items.add", "text": "查看", "form": "saved"},
+        {
+            "target": "config",
+            "text": "配置",
+            "form": "save",
+            "command": {"text": "/example", "context": "聊天"},
+        },
+    ],
+)
+def test_form_metadata_cannot_override_other_scene_types(step):
+    plugin = sample_plugin()
+    plugin.view("items", title="条目", entry="web/index.html", anchors=["add"])
+    document = plugin.surface.describe(plugin)
+    document["guides"] = [{"id": "form", "title": "配置", "steps": [step]}]
+    with pytest.raises(ValueError):
+        plugin.guide("form", title="配置", steps=[step])
+    assert any("guides.form.steps[0].form" in error for error in validate_contract(document))
+
+
+def test_whole_form_target_requires_a_config_model_in_runtime_and_static_contracts():
+    plugin = sample_plugin()
+    plugin.guide("form", title="配置", steps=[{"target": "config", "text": "开始", "form": "start"}])
+    with pytest.raises(ValueError):
+        plugin.surface.describe(plugin)
+    plain = sample_plugin()
+    document = plain.surface.describe(plain)
+    document["guides"] = [
+        {"id": "form", "title": "配置", "steps": [{"target": "config", "text": "开始", "form": "start"}]}
+    ]
+    assert any("guides.form.steps[0].target" in error for error in validate_contract(document))
+
+
+def test_form_target_error_has_fixed_location_without_echoing_unknown_field():
+    from pydantic import BaseModel
+
+    class Settings(BaseModel):
+        interval: int = 30
+
+    plugin = Plugin("guide_demo", config=Settings)
+    document = plugin.surface.describe(plugin)
+    step = {"target": "config.private-invalid-field", "text": "填写", "form": "edit"}
+    plugin.guide("form", title="配置", steps=[step])
+    with pytest.raises(ValueError) as caught:
+        plugin.surface.describe(plugin)
+    assert "guides.form.steps[0].target" in str(caught.value)
+    assert "private-invalid-field" not in str(caught.value)
+    document["guides"] = [{"id": "form", "title": "配置", "steps": [step]}]
+    errors = validate_contract(document)
+    assert any("guides.form.steps[0].target" in error for error in errors)
+    assert all("private-invalid-field" not in error for error in errors)

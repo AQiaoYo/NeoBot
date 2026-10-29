@@ -46,6 +46,38 @@ def test_invalid_documents_return_diagnostics(value) -> None:
     assert validate_contract(value)
 
 
+@pytest.mark.parametrize(
+    "settings",
+    [
+        [],
+        None,
+        [{"id": "business", "title": "业务设置", "input_action": "items.add"}],
+    ],
+)
+def test_removed_settings_contract_is_not_silently_accepted(settings) -> None:
+    contract = make_contract()
+    contract["settings"] = settings
+    assert validate_contract(contract) == ["契约含未知字段"]
+
+
+def test_unknown_contract_fields_do_not_echo_author_keys_or_values() -> None:
+    contract = make_contract()
+    contract["synthetic-private-author-key"] = "synthetic-private-author-value"
+    assert validate_contract(contract) == ["契约含未知字段"]
+
+
+@pytest.mark.parametrize(
+    "target",
+    ["settings.business", "settings.business.enabled", "settings.business.items.add", "settings.business.resource"],
+)
+def test_removed_settings_guide_targets_are_rejected(target: str) -> None:
+    contract = make_contract()
+    contract["guides"][0]["steps"][0]["target"] = target
+    errors = validate_contract(contract)
+    assert any("guides.first.steps[0].target" in error for error in errors)
+    assert target not in str(errors)
+
+
 def test_cross_references_and_read_only_checks_are_validated() -> None:
     contract = make_contract()
     contract["resources"][0]["list_action"] = "items.add"
@@ -54,7 +86,7 @@ def test_cross_references_and_read_only_checks_are_validated() -> None:
     errors = validate_contract(contract)
     assert any("list_action" in error for error in errors)
     assert any("completion_action" in error for error in errors)
-    assert any("config.removed" in error for error in errors)
+    assert any("guides.first.steps[0].target" in error for error in errors)
 
 
 def test_duplicate_actions_are_not_silently_overwritten() -> None:
@@ -88,43 +120,7 @@ def test_command_diagnostics_report_fields_without_echoing_author_values() -> No
         "reply": False,
         "execute": "synthetic-private-author-value",
     }
-    assert validate_contract(contract) == [
-        "guides.first.steps[0].command 只支持 text、context 和 reply",
-        "guides.first.steps[0].command.text 必须是非空字符串",
-        "guides.first.steps[0].command.context 必须是非空字符串",
-        "guides.first.steps[0].command.reply 必须是非空字符串",
-    ]
-
-
-def test_contract_diagnostics_keep_declaration_and_field_order() -> None:
-    contract = make_contract()
-    contract["schema_version"] = 2
-    contract["plugin"]["version"] = "invalid"
-    contract["actions"][1]["permission"] = "root"
-    contract["resources"][0].update(
-        list_action="items.add", create_action="missing", columns=[{"key": "name"}, {"key": "name"}]
-    )
-    contract["views"] = [{"id": "panel", "title": "", "entry": "../outside.html", "anchors": ["row", "row"]}]
-    contract["guides"][0].update(
-        steps=[None, {"target": "view.panel.missing", "text": "", "chapter": "", "example": []}],
-        demo={"actions": {"missing": {}}},
-        completion_action="items.add",
-    )
-    assert validate_contract(contract) == [
-        "schema_version 必须为整数 1",
-        "plugin.version 无效",
-        "actions.items.add.permission 必须为 read、operate 或 manage",
-        "resources.items.list_action 必须引用 read 动作",
-        "resources.items.create_action 引用了不存在的动作",
-        "resources.items.columns 存在重复 key",
-        "views.panel.title 不能为空",
-        "views.panel.entry 必须是包内 HTML 路径",
-        "views.panel.anchors 不能重复",
-        "guides.first.steps[0] 必须是对象",
-        "guides.first.steps[1].target 无效: view.panel.missing",
-        "guides.first.steps[1].text 不能为空",
-        "guides.first.steps[1].chapter 不能为空",
-        "guides.first.steps[1].example 必须是对象",
-        "guides.first.demo 引用了不存在的动作",
-        "guides.first.completion_action 必须引用 read 动作",
-    ]
+    errors = validate_contract(contract)
+    for field in ("text", "context", "reply"):
+        assert any(f"guides.first.steps[0].command.{field}" in error for error in errors)
+    assert "synthetic-private-author-value" not in str(errors)

@@ -35,7 +35,7 @@ export default function PluginHtmlPreview({
   return (
     <div className="plugin-html-preview">
       <div className="plugin-preview-frame-area">
-        <div className={'plugin-settings-preview-canvas' + (original ? ' is-original' : '')} ref={canvas}>
+        <div className={'plugin-preview-canvas' + (original ? ' is-original' : '')} ref={canvas}>
           <div
             style={{
               width: Math.ceil(documentWidth * scale),
@@ -60,7 +60,7 @@ export default function PluginHtmlPreview({
           </div>
         </div>
       </div>
-      <div className="plugin-settings-preview-tools">
+      <div className="plugin-preview-tools">
         <Button size="sm" variant="ghost" onClick={() => setOriginal((value) => !value)}>
           {original ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
           {original ? '适应窗口' : '查看原始大小'}
@@ -77,7 +77,7 @@ export default function PluginHtmlPreview({
           </Button>
         )}
       </div>
-      {showText && <pre className="plugin-settings-preview-text">{fallbackText}</pre>}
+      {showText && <pre className="plugin-preview-text">{fallbackText}</pre>}
     </div>
   );
 }

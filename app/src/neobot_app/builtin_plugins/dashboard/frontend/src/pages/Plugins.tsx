@@ -3,7 +3,7 @@ import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { api } from '../api/endpoints';
 import type { PluginConfigSaveBody } from '../api/endpoints';
 import type { ConfigDocument, Plugin, PluginConflict, ProxyInfo, Result } from '../api/types';
-import { infoBar, notify } from '../notifications/infoBar';
+import { closeInfoBarDetails, infoBar, notify } from '../notifications/infoBar';
 import Modal, { ModalActions } from '../components/Modal';
 import Button from '../components/ui/Button';
 import Icon from '../components/Icon';
@@ -157,6 +157,28 @@ export default function Plugins() {
       if (listPending.current === pending) listPending.current = null;
     }
   }, []);
+
+  useEffect(() => {
+    if (!listError) return;
+    infoBar({
+      title: '插件列表读取失败',
+      message: listError,
+      tone: 'err',
+      details: (
+        <>
+          <p>{listError}</p>
+          <Button
+            onClick={() => {
+              closeInfoBarDetails();
+              void load(true);
+            }}
+          >
+            重试
+          </Button>
+        </>
+      ),
+    });
+  }, [listError, load]);
 
   useEffect(() => {
     const pending = listRequest;
@@ -554,7 +576,6 @@ export default function Plugins() {
             proxy={proxy}
             onSelect={select}
             onOpenProxy={() => setProxyOpen(true)}
-            onReload={() => void load()}
           />
         }
         editor={

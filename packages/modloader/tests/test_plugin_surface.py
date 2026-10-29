@@ -9,6 +9,7 @@ import pytest
 from pydantic import BaseModel, ConfigDict, Field, RootModel
 
 from neobot_modloader import Plugin
+from neobot_modloader.sdk.contract import validate_contract
 
 
 class Subscription(BaseModel):
@@ -107,6 +108,7 @@ async def test_one_business_handler_supports_a_resource_and_a_guide():
     plugin.resource(
         "subscriptions", title="直播订阅", list_action="list", columns=["room", "group"], create_action="create"
     )
+    plugin.view("subscriptions", title="订阅管理", entry="web/index.html", anchors=["create"])
     plugin.guide(
         "first",
         title="创建第一个订阅",
@@ -114,6 +116,7 @@ async def test_one_business_handler_supports_a_resource_and_a_guide():
             {"target": "config.subscription.room", "text": "填写直播间"},
             {"target": "action.create", "text": "添加订阅"},
             {"target": "resource.subscriptions", "text": "查看结果"},
+            {"target": "view.subscriptions.create", "text": "打开订阅管理页面"},
         ],
         completion_action="list",
     )
@@ -122,6 +125,10 @@ async def test_one_business_handler_supports_a_resource_and_a_guide():
     assert contract["actions"][1]["permission"] == "manage"
     assert contract["actions"][1]["input_schema"]["required"] == ["room", "group"]
     assert contract["resources"][0]["columns"] == [{"key": "room", "title": "room"}, {"key": "group", "title": "group"}]
+    assert contract["views"] == [
+        {"id": "subscriptions", "title": "订阅管理", "entry": "web/index.html", "anchors": ["create"]}
+    ]
+    assert validate_contract(contract) == []
     json.dumps(contract, allow_nan=False)
 
     result = await plugin.surface.invoke(

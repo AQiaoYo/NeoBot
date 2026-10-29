@@ -2,7 +2,6 @@
 
 from .actions import ActionError, ActionInvocation, ActionPermission
 from .surface import GuideDefinition, PluginSurface, ResourceDefinition, SurfaceContractError
-from .settings import SettingsDefinition
 
 __all__ = [
     "ActionError",
@@ -11,6 +10,5 @@ __all__ = [
     "GuideDefinition",
     "PluginSurface",
     "ResourceDefinition",
-    "SettingsDefinition",
     "SurfaceContractError",
 ]

@@ -14,14 +14,14 @@ from neobot_modloader import PluginDatabase
 
 
 class Adapter:
-    self_id = 10001
-
     def __init__(self):
         self.calls = []
         self.sent = []
 
     async def call_api(self, action, params, timeout=5.0):
         self.calls.append((action, params))
+        if action == "get_login_info":
+            return {"status": "ok", "retcode": 0, "data": {"user_id": 10001, "nickname": "演示机器人"}}
         return {"status": "ok", "retcode": 0, "data": [{"group_id": 20001, "group_name": "演示交流组"}]}
 
     async def send_group_msg(self, group_id, message):

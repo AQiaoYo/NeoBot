@@ -31,7 +31,6 @@ from neobot_modloader.plugins.registration import (
 from neobot_modloader.plugins.tools import bind_tools
 from neobot_modloader.sdk import ActionPermission, GuideDefinition, PluginSurface, ResourceDefinition
 from neobot_modloader.sdk.surface import ViewDefinition
-from neobot_modloader.sdk.settings import SettingsDefinition
 
 #: 工具包名（技能名后缀）允许的字符
 _TOOL_PACKAGE_RE = re.compile(r"[A-Za-z0-9_]+")
@@ -141,38 +140,6 @@ class Plugin:
     def view(self, id: str, *, title: str, entry: str, anchors: Sequence[str] = ()) -> ViewDefinition:
         """声明包内页面和稳定锚点，数据操作由宿主页面桥接。"""
         return self.surface.view(id, title=title, entry=entry, anchors=anchors)
-
-    def settings(
-        self,
-        id: str,
-        *,
-        title: str,
-        input_action: str,
-        description: str = "",
-        collapsed: bool = False,
-        submit_label: str = "",
-        require_action: str | None = None,
-        fields: Sequence[Mapping[str, Any]] = (),
-        actions: Sequence[Mapping[str, Any]] = (),
-        resource: str | None = None,
-        edit_action: str | None = None,
-        switch_fields: Sequence[str] = (),
-    ) -> SettingsDefinition:
-        """声明由宿主统一渲染的设置分组，复用动作模型、权限及资源。"""
-        return self.surface.settings(
-            id,
-            title=title,
-            input_action=input_action,
-            description=description,
-            collapsed=collapsed,
-            submit_label=submit_label,
-            require_action=require_action,
-            fields=fields,
-            actions=actions,
-            resource=resource,
-            edit_action=edit_action,
-            switch_fields=switch_fields,
-        )
 
     def sqlite_database(
         self,

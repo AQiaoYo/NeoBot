@@ -51,6 +51,8 @@ export interface PluginGuideStep {
   chapter?: string;
   example?: Record<string, unknown>;
   command?: { text: string; context: string; reply?: string };
+  /** 每步 example 是独立合成配置快照；保存阶段仅演示，不调用真实接口。 */
+  form?: 'start' | 'edit' | 'validate' | 'save' | 'saved';
 }
 
 export interface PluginGuideDemo {
@@ -74,30 +76,6 @@ export interface PluginSurfaceContract {
   resources: PluginResource[];
   guides: PluginGuide[];
   views?: PluginView[];
-  settings?: PluginSettingsGroup[];
-}
-
-export interface PluginSettingsField {
-  name: string;
-  control?: 'auto' | 'text' | 'select';
-  placeholder?: string;
-  description?: string;
-  options?: { action: string; items: string; value: string; label: string } | null;
-}
-
-export interface PluginSettingsGroup {
-  id: string;
-  title: string;
-  description?: string;
-  collapsed?: boolean;
-  input_action: string;
-  submit_label?: string;
-  require_action?: string | null;
-  fields?: PluginSettingsField[];
-  actions?: Array<{ action: string; label?: string; display?: 'summary' | 'html' }>;
-  resource?: string | null;
-  edit_action?: string | null;
-  switch_fields?: string[];
 }
 
 export interface PluginSurfacePayload {

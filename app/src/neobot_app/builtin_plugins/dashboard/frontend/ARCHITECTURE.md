@@ -43,19 +43,21 @@
 
 拆分以状态和业务职责为依据，不按行数机械切分，也不把每个简单字段单独建文件。仅在多个调用点有同一稳定职责时提升为共享能力；领域独有的格式与数据转换留在对应目录。
 
-### 插件思索说明书
+### 插件配置与思索说明书
 
-`PluginDeclaredSettings` 渲染作者明确声明的 `contract.settings`，`usePluginSettings` 管理分组临时输入、动态候选、预览与资源刷新，标准字段复用 `SchemaForm`。动作继续由 `usePluginSettingsAccess` 接入服务端鉴权及原写锁，界面不自动展示未声明动作。预览只在输入未变时允许提交；请求世代与读取序号阻止旧回包覆盖新状态。后台刷新只替换资源列表，不覆盖输入或禁用焦点控件。HTML 输出通过无脚本权限的 sandbox iframe 预览，不注入宿主。
+`PluginEditorPanel` 使用同一组「配置表单 / TOML / 插件页面」模式，未声明页面时隐藏最后一项。配置复用 `SchemaForm` 固定控件与 TOML 编辑器；开发者只通过模型声明类型、标题、说明、约束及有限文本提示。业务交互由 `plugin.view()` 的 sandbox iframe 承载，不再解析业务设置布局 DSL。
 
-布局职责归 `styles/plugin-settings.css`。字段、预览与记录只改变网格位置，不在断点切换时重建编辑节点。HTML 预览声明在首次生成前已保留空态位置；缩放、原图和文字查看都在 `PluginHtmlPreview` 内完成，iframe 保留空 sandbox 权限。输入控件的 text 提示复用 ScalarField 单行输入及原 IME 保护。
+`PluginSettingsViews` 直接呈现所有已声明页面，不提供折叠；单页不重复标题，多页使用标题与分隔线。首次访问且上下文可用时才挂载，切回配置或打开说明书只暂停，不销毁原输入。配置草稿未保存或仍在编辑时，插件页面提示返回配置，并暂停真实操作。底部保存区只属于配置路径；业务动作和页面配置保存通过 `usePluginSettingsAccess` 接入原权限与写锁。
 
-思索的 `settings.*` 目标直接复用同一设置组件，数据只来自教程样例，不调用真实动作。配置章节优先复用已读取的真实字段描述，但递归清除真实 value/items 并按样例重建，避免演示与真实控件类型分叉或泄漏业务行。自定义 `view` 只承载标准组件无法表达的特殊交互。
+`Plugins` 的列表失败和 `PluginEditorPanel` 的运行、依赖、配置与草稿暂停反馈统一发布到全局 InfoBar，恢复动作放在详情中；侧栏保留最后成功读取的列表，不插入错误卡片。详情反馈依赖具体诊断值而非轮询对象身份，避免重复通知；重新读取使用最新编辑状态并保留草稿确认规则。
 
-`PluginManualEntry` 提供唯一的“使用说明”入口，直接打开思索说明书。`PluginSettingsViews` 将已声明页面放进原配置表单内的轻量分组，首个默认展示，其余首次展开才挂载真实页面；收起只暂停并保留输入。`PluginViewFrame` 在内联布局中接收经过会话校验的高度消息，跟随外层正文滚动；思索舞台保持独立尺寸。`public/assets/plugin-view-ui.css` 经页面根下 `_ui.css` 分发，为自定义内容提供宿主一致的控件与布局，开发者接入见 [插件设置界面](../../../../../../docs/04-功能文档/插件设置界面.md)。设置和说明共用契约、页面元信息缓存；页面是否参与说明不改变共享 fetcher。iframe 按服务端返回的 URL（包含页面 revision）创建独立会话，页面更新时销毁旧桥接。iframe 仅允许脚本，页面处于不透明来源，不能读取宿主 DOM、登录凭据或 CSRF。
+`PluginHtmlPreview` 为教程和动作结果提供无脚本权限的隔离预览，缩放、原图和文字查看由组件管理，样式归 `styles/plugin-html-preview.css`。`PluginConfigScene` 通过 `pluginConfigSamples` 递归清除真实 value/items、敏感默认值与样例；普通配置目标复用单字段控件，带 `form` 的目标复用完整 `SchemaForm`，按每步独立快照展示初始、填写、本地数值校验和模拟保存，样式归 `styles/plugin-form-tutorial.css`。不调用配置或动作写接口。
+
+`PluginManualEntry` 提供唯一的“使用说明”入口，直接打开思索说明书。`PluginViewFrame` 在内联布局中接收经过会话校验的高度消息，跟随外层正文滚动；思索舞台保持独立尺寸。`public/assets/plugin-view-ui.css` 经页面根下 `_ui.css` 分发，提供宿主一致的控件和布局；`_sdk.js` 自动应用并持续同步主题令牌与 `color-scheme`，自定义样式必须消费同一主题机制。接入见 [插件设置界面](../../../../../../docs/04-功能文档/插件设置界面.md)。设置和说明共用契约、页面元信息缓存。iframe 按服务端返回的 URL（包含页面 revision）创建独立会话，更新时销毁旧桥接；不透明来源不能读取宿主 DOM、登录凭据或 CSRF。
 
 公开入口 `public/assets/plugin-view-sdk.js` 和配套 `.d.ts` 提供 `window.NeoBotPlugin`。`pluginViewBridge` 验证当前 iframe 窗口、协议版本、请求 ID 与会话标识；动作仅能来自当前插件契约，并经过当前权限和统一写入锁。`getConfig` / `saveConfig(values, revision)` 复用当前插件的配置 API，按原规则校验版本与敏感字段，不传配置源码或磁盘路径。通知统一进入 InfoBar，导航只接受稳定目标 ID。
 
-说明作者声明 `target`、中文说明、可选 `chapter` / `example` 和 `demo.actions` / `demo.config`。素材页面通过 `registerAnchor(id, element)` 报告实际几何位置，目标写成 `view.<页面ID>.<锚点ID>`，无需编写坐标或播放脚本。页面订阅 `onGuideStep` 切换演示内容和填写样例，不定位或改写宿主中的真实配置草稿。
+说明作者声明 `target`、中文说明、可选 `chapter` / `example`、配置专用 `form` 和 `demo.actions` / `demo.config`。素材页面通过 `registerAnchor(id, element)` 报告实际几何位置，目标写成 `view.<页面ID>.<锚点ID>`，无需编写坐标或播放脚本。页面订阅 `onGuideStep`，按独立样例快照重建全部演示状态，不定位或改写宿主中的真实配置草稿。
 
 SDK 上报锚点在 iframe 及各级滚动容器中的可见范围，观察目标与祖先尺寸，并在滚动后更新；不可见或已卸载目标不再上报。思索模式不在 iframe 中绘制外扩 outline，所有场景由 `PluginPonderStage` 通过 `ponderGeometry` 在舞台内统一绘制高亮与指针。真实页面定位仍使用控件内描边，不改变其布局尺寸。
 

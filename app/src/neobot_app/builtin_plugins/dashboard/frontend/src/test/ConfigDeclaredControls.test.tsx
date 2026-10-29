@@ -375,4 +375,204 @@ describe('配置教程复用真实字段', () => {
     expect(screen.queryByDisplayValue('演示连接')).not.toBeInTheDocument();
     expect(screen.getByText('还没有配置项，点击「新增」添加')).toBeInTheDocument();
   });
+
+  it('完整表单按独立快照前进、后退和重播，不继承真实值或上一步输入', () => {
+    const title = field({ name: 'title', path: ['title'], label: '通知标题', value: 'private-live-title' });
+    const interval = field({
+      name: 'interval',
+      path: ['interval'],
+      label: '轮询间隔',
+      type: 'int',
+      value: 999,
+      default: 30,
+    });
+    const props = {
+      pluginId: 'demo',
+      schema: {
+        type: 'object',
+        properties: {
+          title: { type: 'string' },
+          interval: { type: 'integer', default: 30 },
+          delivery: { type: 'string', enum: ['instant', 'digest'], default: 'instant' },
+        },
+      } as JsonSchema,
+      fields: [title, interval, delivery],
+    };
+    const start = { target: 'config', text: '开始', form: 'start' as const, example: {} };
+    const edited = {
+      target: 'config.delivery',
+      text: '填写',
+      form: 'edit' as const,
+      example: { title: '演示标题', interval: 60, delivery: 'digest' },
+    };
+    const rendered = render(<PluginConfigScene {...props} step={start} />);
+    expect(screen.getByLabelText('通知标题')).toHaveValue('');
+    expect(screen.getByLabelText('轮询间隔')).toHaveValue(30);
+    rendered.rerender(<PluginConfigScene {...props} step={edited} />);
+    expect(screen.getByLabelText('通知标题')).toHaveValue('演示标题');
+    expect(screen.getByLabelText('轮询间隔')).toHaveValue(60);
+    expect(screen.getByRole('combobox', { name: '通知方式' })).toHaveValue('digest');
+    expect(screen.getByLabelText('通知标题')).toBeDisabled();
+    expect(screen.queryByDisplayValue('private-live-title')).not.toBeInTheDocument();
+    rendered.rerender(<PluginConfigScene {...props} step={{ ...edited, target: 'config', form: 'save' }} />);
+    expect(screen.getByRole('button', { name: /模拟保存/ })).toBeDisabled();
+    expect(rendered.container.querySelector('[data-ponder-control]')).toContainElement(
+      screen.getByRole('button', { name: /模拟保存/ }),
+    );
+    rendered.rerender(<PluginConfigScene {...props} step={start} />);
+    expect(screen.getByLabelText('通知标题')).toHaveValue('');
+    expect(screen.getByLabelText('轮询间隔')).toHaveValue(30);
+    rendered.rerender(<PluginConfigScene {...props} step={edited} />);
+    expect(screen.getByLabelText('通知标题')).toHaveValue('演示标题');
+    expect(title.value).toBe('private-live-title');
+  });
+
+  it('完整表单清除凭据默认值、未标记的密钥和真实列表行，递归清理 JSON 示例', () => {
+    const fields = [
+      field({
+        name: 'api_key',
+        path: ['api_key'],
+        label: '密钥',
+        value: 'private-live-secret',
+        default: 'private-default-secret',
+      }),
+      field({
+        name: 'payload',
+        path: ['payload'],
+        kind: 'json',
+        label: '附加内容',
+        value: { title: 'private-live-json' },
+        default: { token: 'private-default-token', title: '默认标题' },
+      }),
+      field({
+        name: 'routes',
+        path: ['routes'],
+        kind: 'model_list',
+        value: [{ name: 'private-live-row' }],
+        items: [
+          {
+            index: 0,
+            fields: [field({ name: 'name', path: ['routes', '0', 'name'], value: 'private-live-row' })],
+          },
+        ],
+      }),
+    ];
+    const rendered = render(
+      <PluginConfigScene
+        pluginId="demo"
+        schema={{
+          type: 'object',
+          properties: {
+            payload: { type: 'object', properties: { passphrase: { type: 'string', writeOnly: true } } },
+          },
+        }}
+        fields={fields}
+        step={{
+          target: 'config',
+          text: '校验',
+          form: 'validate',
+          example: {
+            api_key: 'private-example-key',
+            payload: {
+              title: '样例标题',
+              passphrase: 'private-schema-secret',
+              nested: [{ access_token: 'private-nested-token' }],
+            },
+          },
+        }}
+      />,
+    );
+    expect(screen.getByLabelText('密钥')).toHaveValue('');
+    expect(screen.getByLabelText('附加内容')).toHaveValue(
+      JSON.stringify({ title: '样例标题', passphrase: '', nested: [{ access_token: '' }] }, null, 2),
+    );
+    expect(rendered.container.innerHTML).not.toContain('private-');
+    expect(screen.getByText('还没有配置项，点击「新增」添加')).toBeInTheDocument();
+  });
+
+  it('对象列表重建后仍清空由子描述符标记的凭据默认值', () => {
+    render(
+      <PluginConfigScene
+        pluginId="demo"
+        schema={{ type: 'object' }}
+        fields={[
+          field({
+            name: 'routes',
+            path: ['routes'],
+            kind: 'model_list',
+            item_fields: [
+              field({ name: 'name', path: ['routes', 'name'], label: '路由名称', default: '' }),
+              field({
+                name: 'passphrase',
+                path: ['routes', 'passphrase'],
+                label: '路由凭据',
+                sensitive: true,
+                default: 'private-default-passphrase',
+              }),
+            ],
+            value: [{ name: 'private-live-row', passphrase: 'private-live-passphrase' }],
+          }),
+        ]}
+        step={{
+          target: 'config.routes',
+          text: '演示路由',
+          form: 'edit',
+          example: { routes: [{ name: '样例路由', passphrase: 'private-example-passphrase' }] },
+        }}
+      />,
+    );
+    expect(screen.getByLabelText(/路由名称/)).toHaveValue('样例路由');
+    expect(screen.getByLabelText(/路由凭据/)).toHaveValue('');
+    expect(screen.getByLabelText(/路由凭据/)).toBeDisabled();
+    expect(screen.queryByDisplayValue('private-live-row')).not.toBeInTheDocument();
+    expect(screen.queryByDisplayValue('private-example-passphrase')).not.toBeInTheDocument();
+  });
+
+  it.each([true, false])('校验使用公开边界而非真实值，并在修正后清除错误（实时描述符：%s）', (withFields) => {
+    const props = {
+      pluginId: 'demo',
+      schema: {
+        type: 'object',
+        properties: { interval: { title: '检查间隔', type: 'integer', minimum: 15, maximum: 3600 } },
+      } as JsonSchema,
+      fields: withFields
+        ? [
+            field({
+              name: 'interval',
+              path: ['interval'],
+              label: '检查间隔',
+              type: 'int',
+              value: 900,
+            }),
+          ]
+        : undefined,
+    };
+    const rendered = render(
+      <PluginConfigScene
+        {...props}
+        step={{
+          target: 'config.interval',
+          text: '校验',
+          form: 'validate',
+          example: { interval: 10 },
+        }}
+      />,
+    );
+    expect(screen.getByRole('status')).toHaveTextContent('检查间隔');
+    expect(screen.getByRole('status')).toHaveTextContent('15');
+    expect(screen.getByLabelText('检查间隔')).toHaveValue(10);
+    rendered.rerender(
+      <PluginConfigScene
+        {...props}
+        step={{
+          target: 'config.interval',
+          text: '校验',
+          form: 'validate',
+          example: { interval: 30 },
+        }}
+      />,
+    );
+    expect(screen.getByLabelText('检查间隔')).toHaveValue(30);
+    expect(screen.getByRole('status').querySelector('li')).toBeNull();
+  });
 });

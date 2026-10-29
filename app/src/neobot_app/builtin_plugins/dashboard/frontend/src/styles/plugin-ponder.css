@@ -119,9 +119,6 @@
   margin-inline: auto;
   padding: 32px;
 }
-.ponder-settings-content {
-  width: 100%;
-}
 .ponder-reference-value {
   display: grid;
   gap: 8px;

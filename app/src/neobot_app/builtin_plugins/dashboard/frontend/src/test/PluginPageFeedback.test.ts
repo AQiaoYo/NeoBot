@@ -8,9 +8,9 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-async function pageFixture(polling = false) {
+async function pageFixture(polling = false, mode: 'live' | 'demo' = 'live') {
   const document = new DOMParser().parseFromString(markup, 'text/html');
-  const context = { available: true, suspended: false, permissions: ['manage'], mode: 'live' };
+  const context = { available: true, suspended: false, permissions: ['manage'], mode };
   const health = {
     running: true,
     subscriptions: 0,
@@ -18,11 +18,22 @@ async function pageFixture(polling = false) {
     error: '',
     message: '尚未添加订阅',
   };
+  const settings = {
+    group_id: 20001,
+    card_style: 'minimal',
+    ai_reply_live: false,
+    ai_reply_live_end: false,
+    default_push_live: true,
+    default_push_live_end: true,
+    inherited: false,
+  };
+  let guideListener: ((step: Record<string, unknown>) => void) | undefined;
   const notify = vi.fn().mockResolvedValue(null);
-  const action = vi.fn(async (name: string) => {
+  const action = vi.fn(async (name: string): Promise<unknown> => {
     if (name === 'subscriptions.groups') return { items: [{ group_id: 20001, name: '测试群' }] };
     if (name === 'subscriptions.list') return { items: [] };
     if (name === 'subscriptions.health') return health;
+    if (name === 'groups.settings.get') return { ...settings };
     throw new Error('预览服务暂不可用');
   });
   const sdk = {
@@ -31,7 +42,10 @@ async function pageFixture(polling = false) {
     notify,
     registerAnchor: () => () => {},
     onContext: () => () => {},
-    onGuideStep: () => () => {},
+    onGuideStep: (listener: (step: Record<string, unknown>) => void) => {
+      guideListener = listener;
+      return () => {};
+    },
   };
   let closePage = () => {};
   const root = {
@@ -56,9 +70,27 @@ async function pageFixture(polling = false) {
   const button = (id: string) => document.getElementById(id) as HTMLButtonElement;
   const group = document.getElementById('group_id') as HTMLSelectElement;
   const target = document.getElementById('target-input') as HTMLInputElement;
-  await vi.waitFor(() => expect(action).toHaveBeenCalledWith('subscriptions.health', {}));
-  await vi.waitFor(() => expect(button('show-preview').disabled).toBe(false));
-  return { document, notify, action, health, button, group, target };
+  await vi.waitFor(() => expect(action).toHaveBeenCalledWith('subscriptions.groups', {}));
+  if (mode === 'live') {
+    await vi.waitFor(() => expect(action).toHaveBeenCalledWith('subscriptions.health', {}));
+    await vi.waitFor(() => expect(button('show-preview').disabled).toBe(false));
+  }
+  return {
+    document,
+    notify,
+    action,
+    health,
+    settings,
+    button,
+    group,
+    target,
+    guide: (example: Record<string, unknown>) =>
+      guideListener?.({
+        mode: 'demo',
+        target: 'view.subscriptions.group',
+        example,
+      }),
+  };
 }
 
 describe('插件页面操作反馈', () => {
@@ -196,5 +228,49 @@ describe('插件页面操作反馈', () => {
       message: '网络连接中断',
       tone: 'err',
     });
+  });
+  it('刷新得到不同的群设置后，旧预览失效且不能直接开始监听', async () => {
+    const page = await pageFixture();
+    page.group.value = '20001';
+    page.group.dispatchEvent(new Event('change'));
+    await vi.waitFor(() =>
+      expect((page.document.getElementById('settings-style') as HTMLSelectElement).disabled).toBe(false),
+    );
+    const original = page.action.getMockImplementation()!;
+    page.action.mockImplementation(async (name) =>
+      name === 'subscriptions.preview'
+        ? {
+            target: { name: '演示主播', room_id: 610001 },
+            style: 'minimal',
+            html: '<p>原通知</p>',
+            fallback_text: '原通知',
+          }
+        : original(name),
+    );
+    page.target.value = '1001';
+    page.button('show-preview').click();
+    await vi.waitFor(() => expect(page.button('subscribe').disabled).toBe(false));
+    page.settings.card_style = 'neon';
+    page.button('reload-groups').click();
+    await vi.waitFor(() =>
+      expect((page.document.getElementById('settings-style') as HTMLSelectElement).value).toBe('neon'),
+    );
+    expect(page.button('subscribe').disabled).toBe(true);
+    expect((page.document.getElementById('preview-canvas') as HTMLElement).hidden).toBe(true);
+    expect(page.target.value).toBe('1001');
+  });
+
+  it('教程退回初始表单时清空后续章节的群设置，而不是只清空群和链接', async () => {
+    const page = await pageFixture(false, 'demo');
+    page.guide({ group_id: 20001, target: '' });
+    const style = page.document.getElementById('settings-style') as HTMLSelectElement;
+    const push = page.document.getElementById('settings-push-live') as HTMLInputElement;
+    await vi.waitFor(() => expect(style.value).toBe('minimal'));
+    expect(push.checked).toBe(true);
+    page.guide({ group_id: 0, target: '' });
+    await vi.waitFor(() => expect(page.group.value).toBe(''));
+    expect(style.value).toBe('random');
+    expect(push.checked).toBe(false);
+    expect(page.target.value).toBe('');
   });
 });

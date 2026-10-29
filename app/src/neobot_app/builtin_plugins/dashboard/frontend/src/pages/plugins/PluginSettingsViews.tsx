@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { PluginView } from '../../api/types';
 import Button from '../../components/ui/Button';
-import Icon from '../../components/Icon';
 import { PanelSkeleton } from '../../components/ui/PageSkeleton';
 import { useQueryErrorNotice } from '../../hooks/useQueryErrorNotice';
 import PluginViewFrame from './PluginViewFrame';
@@ -19,29 +18,17 @@ interface Props {
 
 function SettingsView({
   view,
-  initiallyOpen,
+  showHeading,
   ...props
-}: Props & { view: PluginView & { url: string }; initiallyOpen: boolean }) {
-  const [open, setOpen] = useState(initiallyOpen);
-  const [visited, setVisited] = useState(initiallyOpen && !props.suspended);
+}: Props & { view: PluginView & { url: string }; showHeading: boolean }) {
+  const [visited, setVisited] = useState(!props.suspended);
   useEffect(() => {
-    // 首次配置尚未就绪时不启动页面；之后暂停或收起只停请求，不销毁输入。
-    if (open && !props.suspended) setVisited(true);
-  }, [open, props.suspended]);
+    // 独立页面只延后首次挂载；切换顶层页签时暂停请求并保留输入。
+    if (!props.suspended) setVisited(true);
+  }, [props.suspended]);
   return (
-    <details
-      className="plugin-settings-view"
-      aria-label={view.title}
-      open={open}
-      onToggle={(event) => {
-        const expanded = event.currentTarget.open;
-        setOpen(expanded);
-      }}
-    >
-      <summary>
-        <Icon name="chevron" size={16} />
-        {view.title}
-      </summary>
+    <section className="plugin-settings-view" aria-label={view.title}>
+      {showHeading && <h3>{view.title}</h3>}
       {visited && (
         <div className="plugin-settings-frame-wrap">
           <PluginViewFrame
@@ -50,31 +37,31 @@ function SettingsView({
             view={view}
             mode="live"
             layout="inline"
-            suspended={props.suspended || !open}
+            suspended={props.suspended}
           />
         </div>
       )}
-    </details>
+    </section>
   );
 }
 
 export default function PluginSettingsViews(props: Props) {
   const declared = !!props.surface.contract.views?.length;
   const query = usePluginViews(props.pluginId, declared);
-  useQueryErrorNotice(query.error, query.updatedAt, '插件设置读取失败', declared);
+  useQueryErrorNotice(query.error, query.updatedAt, '插件页面读取失败', declared);
 
   if (!declared || (!query.loading && !query.error && !query.data?.length)) return null;
   return (
     <div className="plugin-settings-views">
       {query.loading && !query.data ? (
-        <PanelSkeleton label="正在读取插件设置…" rows={2} />
+        <PanelSkeleton label="正在读取插件页面…" rows={2} />
       ) : (
-        query.data?.map((view, index) => (
+        query.data?.map((view) => (
           <SettingsView
             key={`${props.pluginId}:${view.id}`}
             {...props}
             view={view}
-            initiallyOpen={index === 0}
+            showHeading={(query.data?.length ?? 0) > 1}
           />
         ))
       )}

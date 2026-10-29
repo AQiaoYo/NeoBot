@@ -10,10 +10,9 @@ from packaging.version import InvalidVersion, Version
 
 from neobot_modloader.plugins.registration import validate_plugin_name
 
-from .guides import guide_command_errors
+from .guides import guide_command_errors, guide_form_errors
 from .schema import sanitize_schema, schema_field_paths, schema_structure_errors
 from .surface import validate_view_entry
-from .settings_validation import settings_targets, validate_settings
 
 _ID = re.compile(r"[a-z][a-z0-9_.-]*\Z")
 _PERMISSIONS = {"read", "operate", "manage"}
@@ -177,8 +176,7 @@ def _validate_guide_step(step: Any, location: str, targets: set[str], errors: li
         return
     target = step.get("target")
     if not isinstance(target, str) or target not in targets:
-        suffix = f": {target}" if isinstance(target, str) else ""
-        errors.append(f"{location}.target 无效{suffix}")
+        errors.append(f"{location}.target 无效")
     if not isinstance(step.get("text"), str) or not step["text"].strip():
         errors.append(f"{location}.text 不能为空")
     if "chapter" in step and (not isinstance(step["chapter"], str) or not step["chapter"].strip()):
@@ -187,6 +185,7 @@ def _validate_guide_step(step: Any, location: str, targets: set[str], errors: li
         errors.append(f"{location}.example 必须是对象")
     if "command" in step:
         errors.extend(guide_command_errors(step["command"], f"{location}.command"))
+    errors.extend(guide_form_errors(step, location))
 
 
 def _validate_guide_demo(demo: Any, location: str, actions: dict[str, dict[str, Any]], errors: list[str]) -> None:
@@ -236,6 +235,8 @@ def validate_contract(document: Any) -> list[str]:
     except (TypeError, ValueError, RecursionError):
         return ["契约必须包含有限、可序列化的 JSON 值"]
     errors: list[str] = []
+    if set(document) - {"schema_version", "plugin", "config", "actions", "resources", "guides", "views"}:
+        errors.append("契约含未知字段")
     if type(document.get("schema_version")) is not int or document["schema_version"] != 1:
         errors.append("schema_version 必须为整数 1")
     _validate_plugin(document.get("plugin"), errors)
@@ -244,16 +245,13 @@ def validate_contract(document: Any) -> list[str]:
     resources = _entries(document, "resources", errors)
     guides = _entries(document, "guides", errors)
     views = _entries(document, "views", errors)
-    settings = _entries(document, "settings", errors)
     _validate_actions(actions, errors)
     _validate_resources(resources, actions, errors)
-    settings_errors = validate_settings(settings, actions, resources)
-    errors.extend(settings_errors)
     targets = {f"config.{path}" for path in schema_field_paths(config)}
+    if config is not None:
+        targets.add("config")
     targets.update(f"action.{name}" for name in actions)
     targets.update(f"resource.{name}" for name in resources)
     targets.update(_validate_views(views, errors))
-    if not settings_errors:
-        targets.update(settings_targets(settings, actions))
     _validate_guides(guides, actions, targets, errors)
     return errors

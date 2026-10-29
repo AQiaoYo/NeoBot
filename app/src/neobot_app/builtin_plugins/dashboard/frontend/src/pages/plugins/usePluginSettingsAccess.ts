@@ -11,7 +11,7 @@ interface Options {
   applyDocument: PluginActionHandlers['applyDocument'];
 }
 
-/** 独立设置页与原配置编辑器共用写入锁；读取列表不会锁住整个编辑器。 */
+/** 独立插件页面与配置编辑器共用写入锁；读取列表不会锁住整个编辑器。 */
 export function usePluginSettingsAccess({ pluginId, canWrite, blocked, act, applyDocument }: Options) {
   const run: RunPluginAction = async (action, values) => {
     if (action.permission !== 'read' && (!canWrite || blocked))

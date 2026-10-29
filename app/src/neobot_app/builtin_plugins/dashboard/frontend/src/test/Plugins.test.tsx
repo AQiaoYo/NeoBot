@@ -159,8 +159,7 @@ describe('Plugins 页面', () => {
         expect(api.plugins).toHaveBeenCalledTimes(2);
         expect(api.pluginConfig).toHaveBeenCalledTimes(1);
         expect(screen.getByRole('heading', { name: 'dashboard' })).toBeInTheDocument();
-        expect(screen.getByText('插件已不在列表中')).toBeInTheDocument();
-        expect(screen.getByText('当前编辑内容已保留，恢复插件后再保存。')).toBeInTheDocument();
+        expect(infoBar).toHaveBeenLastCalledWith(expect.objectContaining({ tone: 'warn' }));
         expect(screen.getByRole('textbox', { name: kind === '非法 JSON' ? 'payload' : '新增条目的键' })).toBe(
           input,
         );
@@ -175,7 +174,6 @@ describe('Plugins 页面', () => {
         await act(async () => {
           await vi.advanceTimersByTimeAsync(POLL.plugins);
         });
-        expect(screen.queryByText('插件已不在列表中')).not.toBeInTheDocument();
         expect(input).toHaveValue(text);
         expect(input).toBeEnabled();
         expect(api.pluginConfig).toHaveBeenCalledTimes(1);

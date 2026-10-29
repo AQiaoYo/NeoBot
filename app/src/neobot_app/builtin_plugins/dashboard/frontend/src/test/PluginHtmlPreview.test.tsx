@@ -1,9 +1,7 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import PluginHtmlPreview from '../pages/plugins/PluginHtmlPreview';
-import { PluginSettingsContent } from '../pages/plugins/PluginDeclaredSettings';
-import { settingsFixture } from './PluginDeclaredSettings.fixtures';
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -15,7 +13,7 @@ function previewLayout(initialWidth: number) {
   const observers: Array<{ callback: ResizeObserverCallback; active: boolean; targets: Set<Element> }> = [];
   // jsdom 不执行布局，仅补上容器实测宽度和尺寸变化通知。
   vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(function (this: HTMLElement) {
-    return this.classList.contains('plugin-settings-preview-canvas') ? width : 0;
+    return this.classList.contains('plugin-preview-canvas') ? width : 0;
   });
   vi.stubGlobal(
     'ResizeObserver',
@@ -63,39 +61,6 @@ function paintedSize(frame: HTMLIFrameElement) {
 }
 
 describe('隔离 HTML 预览', () => {
-  it('声明单行文本时使用 input，中文组字和外部重排不会丢失输入或占位提示', async () => {
-    const test = settingsFixture();
-    const group = {
-      ...test.group,
-      fields: [
-        ...(test.group.fields ?? []),
-        { name: 'target', control: 'text' as const, placeholder: '粘贴直播间链接' },
-      ],
-    };
-    const user = userEvent.setup();
-    const rendered = render(<PluginSettingsContent {...test} group={group} />);
-    const input = screen.getByRole('textbox', { name: '直播间链接' });
-    expect(input.tagName).toBe('INPUT');
-    expect(input).toHaveAttribute('placeholder', '粘贴直播间链接');
-    fireEvent.compositionStart(input);
-    fireEvent.change(input, { target: { value: 'zhong' } });
-    rendered.rerender(
-      <PluginSettingsContent {...test} group={{ ...group, description: '布局更新后的说明' }} />,
-    );
-    expect(screen.getByRole('textbox', { name: '直播间链接' })).toBe(input);
-    expect(input).toHaveValue('zhong');
-    expect(screen.getByRole('button', { name: '识别直播间' })).toBeDisabled();
-    fireEvent.compositionEnd(input, { target: { value: '中文直播间' } });
-    await waitFor(() => expect(screen.getByRole('button', { name: '识别直播间' })).toBeEnabled());
-    expect(input).toHaveValue('中文直播间');
-    await user.click(screen.getByRole('button', { name: '识别直播间' }));
-    expect(test.run).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'subscriptions.resolve' }),
-      { target: '中文直播间' },
-      true,
-    );
-  });
-
   it('窄容器能看完整预览，查看原图后可以返回适应窗口，尺寸变化不重新创建文档', async () => {
     const layout = previewLayout(360);
     const user = userEvent.setup();
@@ -148,32 +113,23 @@ describe('隔离 HTML 预览', () => {
     expect(size.width).toBeLessThanOrEqual(600);
   });
 
-  it('打开预览和原图不会清除仍未提交的业务输入，卸载后释放尺寸观察', async () => {
+  it('文字内容可折叠，缩放保留隔离文档，卸载后释放尺寸观察', async () => {
     const layout = previewLayout(420);
-    const test = settingsFixture();
     const user = userEvent.setup();
-    const rendered = render(<PluginSettingsContent {...test} />);
-    await screen.findByRole('option', { name: '测试接收群' });
-    await user.selectOptions(screen.getByRole('combobox', { name: '接收群' }), '42');
-    const input = screen.getByRole('textbox', { name: '直播间链接' });
-    await user.type(input, 'https://live.bilibili.com/101');
-    await user.click(screen.getByRole('button', { name: '预览通知' }));
-    await screen.findByTitle('预览通知');
+    const rendered = render(
+      <PluginHtmlPreview title="通知卡片" html="<p>合成卡片内容</p>" fallbackText="合成通知文字" />,
+    );
+    const frame = screen.getByTitle('通知卡片');
     await user.click(screen.getByRole('button', { name: '查看原始大小' }));
     layout.resize(280);
     await user.click(screen.getByRole('button', { name: '适应窗口' }));
-    expect(screen.getByRole('textbox', { name: '直播间链接' })).toBe(input);
-    expect(input).toHaveValue('https://live.bilibili.com/101');
-    expect(screen.getByRole('combobox', { name: '接收群' })).toHaveValue('42');
-    expect(screen.getByRole('button', { name: '开始监听' })).toBeEnabled();
-    const textToggle = screen.getByRole('button', { name: '查看文字内容' });
-    expect(textToggle).toHaveAttribute('aria-expanded', 'false');
-    await user.click(textToggle);
+    expect(screen.getByTitle('通知卡片')).toBe(frame);
+    expect(screen.getByRole('button', { name: '查看文字内容' })).toHaveAttribute('aria-expanded', 'false');
+    await user.click(screen.getByRole('button', { name: '查看文字内容' }));
     expect(screen.getByRole('button', { name: '收起文字内容' })).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByText('合成通知文字')).toBeVisible();
     await user.click(screen.getByRole('button', { name: '收起文字内容' }));
     expect(screen.queryByText('合成通知文字')).not.toBeInTheDocument();
-    expect(test.run.mock.calls.every(([definition]) => definition.permission === 'read')).toBe(true);
     expect(layout.activeObservers()).toBeGreaterThan(0);
     rendered.unmount();
     expect(layout.activeObservers()).toBe(0);

@@ -59,14 +59,6 @@ async def subscriptions(host):
 
 async def test_manual_covers_real_fields_and_registered_command_paths(manual_host):
     guides = manual()
-    assert [guide["title"] for guide in guides.values()] == ["开始监听", "群聊命令", "面板设置"]
-    assert all(not guide.get("completion_action") for guide in guides.values())
-    settings_targets = {
-        "settings.subscriptions." + name
-        for name in ("group_id", "target", "subscriptions.preview", "subscriptions.create", "resource")
-    }
-    assert {step["target"] for step in guides["first-subscription"]["steps"]} == settings_targets
-    assert "插件管理 → streaming_parser → 配置表单 → 直播订阅" in guides["first-subscription"]["steps"][0]["text"]
     fields = set()
     command_names = set()
     steps = [step for guide in guides.values() for step in guide["steps"]]
@@ -78,7 +70,7 @@ async def test_manual_covers_real_fields_and_registered_command_paths(manual_hos
             assert "QQ 群" in command["context"] and "@机器人" in command["context"]
             command_names.add(parsed[0].name)
             continue
-        if step["target"].startswith("settings."):
+        if step["target"].startswith("view.") or step.get("form"):
             continue
         name = step["target"].removeprefix("config.")
         assert step["target"].startswith("config.")

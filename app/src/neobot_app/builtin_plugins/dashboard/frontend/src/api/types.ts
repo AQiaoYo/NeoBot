@@ -14,8 +14,6 @@ export type {
   PluginSurfaceContract,
   PluginSurfacePayload,
   PluginActionPayload,
-  PluginSettingsGroup,
-  PluginSettingsField,
 } from './types/pluginSurface';
 export type {
   DeployStep,

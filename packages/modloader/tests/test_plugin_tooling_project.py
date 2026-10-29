@@ -91,6 +91,40 @@ def test_static_check_does_not_execute_plugin_code(tmp_path: Path) -> None:
     assert not marker.exists()
 
 
+@pytest.mark.parametrize("settings", [[], [{"id": "business", "input_action": "save"}]])
+def test_static_check_and_cli_reject_removed_settings_without_importing_plugin(tmp_path: Path, settings) -> None:
+    marker = tmp_path / "executed.txt"
+    path = make_project(
+        tmp_path,
+        body=f"\nfrom pathlib import Path\nPath({str(marker)!r}).write_text('bad')\nraise RuntimeError('do not import')\n",
+    )
+    contract_path = path / "plugin.contract.json"
+    contract = json.loads(contract_path.read_text(encoding="utf-8"))
+    contract["settings"] = settings
+    contract_path.write_text(json.dumps(contract), encoding="utf-8")
+
+    report = check_project(path)
+    assert not report.ok
+    assert report.errors == ("plugin.contract.json: 契约含未知字段",)
+    assert report.executes_plugin is False
+    assert not marker.exists()
+
+    completed = subprocess.run(
+        [sys.executable, "-m", "neobot_modloader.sdk", "check", str(path), "--json"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
+    )
+    assert completed.returncode == 1
+    cli_report = json.loads(completed.stdout)
+    assert cli_report["ok"] is False
+    assert cli_report["errors"] == ["plugin.contract.json: 契约含未知字段"]
+    assert cli_report["executes_plugin"] is False
+    assert "Traceback" not in completed.stderr
+    assert not marker.exists()
+
+
 @pytest.mark.parametrize("value", ["../outside.json", "/outside.json", "C:/outside.json"])
 def test_static_check_rejects_contract_path_escape(tmp_path: Path, value: str) -> None:
     path = make_project(tmp_path)

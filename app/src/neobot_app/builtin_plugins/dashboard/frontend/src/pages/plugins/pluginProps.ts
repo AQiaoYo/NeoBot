@@ -47,7 +47,6 @@ export interface PluginListPanelProps {
   proxy: ProxyInfo;
   onSelect: (plugin: Plugin) => void;
   onOpenProxy: () => void;
-  onReload: () => void;
 }
 
 /** 右侧编辑器（工具条 + 详情 + 配置体 + 页脚） */

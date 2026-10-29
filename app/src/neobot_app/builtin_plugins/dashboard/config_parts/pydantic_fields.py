@@ -115,6 +115,12 @@ class _DescriptorBuilder:
             # 容器也可被整体标为只写，不能继续为其展开包含私密键名的子控件。
             descriptor.update(type="str", sensitive=True, has_value=_present(value), default="", value="")
             return descriptor
+        # 只开放文本显示提示，不允许元数据替换类型、控件或凭据保护。
+        if target is str:
+            if type(extra.get("single_line")) is bool:
+                descriptor["single_line"] = extra["single_line"]
+            if isinstance(extra.get("placeholder"), str):
+                descriptor["placeholder"] = extra["placeholder"]
         options = _options(target)
         if options is not None:
             return self.enum(descriptor, options, extra)
