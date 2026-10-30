@@ -95,12 +95,15 @@ class PluginHotReloader:
         *,
         poll_interval: float = 1.0,
         debounce: float = 0.3,
+        names: set[str] | None = None,
     ) -> None:
         if poll_interval <= 0 or debounce < 0:
             raise ValueError("poll_interval 必须为正数，debounce 不能为负数")
         self.runtime = runtime
         self.poll_interval = poll_interval
         self.debounce = debounce
+        self.names = names
+        self.results: dict[str, dict[str, object]] = {}
         self._observations: dict[str, _Observation] = {}
         self._scan_errors: dict[str, str] = {}
         self._poll_lock = asyncio.Lock()
@@ -110,6 +113,8 @@ class PluginHotReloader:
     def _targets(self) -> list[_Target]:
         targets = []
         for name, path in tuple(self.runtime._loaded_paths.items()):
+            if self.names is not None and name not in self.names:
+                continue
             record = self.runtime.manager.get_record(name)
             if record is None or record.state not in _READY:
                 continue
@@ -121,7 +126,8 @@ class PluginHotReloader:
     def _still_current(self, target: _Target) -> bool:
         record = self.runtime.manager.get_record(target.name)
         return (
-            record is target.record
+            (self.names is None or target.name in self.names)
+            and record is target.record
             and record.state in _READY
             and self.runtime._loaded_paths.get(target.name) == target.path
             and self.runtime._loaded_modules.get(target.name, ()) == target.generation
@@ -202,6 +208,8 @@ class PluginHotReloader:
                 observation.fingerprint = fingerprint
                 observation.pending = None
                 record = self.runtime.manager.get_record(target.name)
+                sequence = int(self.results.get(target.name, {}).get("sequence", 0)) + 1
+                self.results[target.name] = {"sequence": sequence, "status": "reloading"}
                 try:
                     outcome = await self.runtime.reload_plugin_result(
                         target.name,
@@ -210,8 +218,14 @@ class PluginHotReloader:
                         _expected=(target.record, record.state),
                     )
                 except Exception as error:
+                    self.results[target.name] = {"sequence": sequence, "status": "failed", "error": str(error)}
                     self.runtime.logger.error(f"插件自动重载失败 ({target.name}): {error}")
                     continue
+                self.results[target.name] = {
+                    "sequence": sequence,
+                    "status": "succeeded" if outcome.ok else "failed",
+                    "error": outcome.error if not outcome.ok else None,
+                }
                 if outcome.ok:
                     self.runtime.logger.info(f"插件源码已自动重载: {target.name}")
                 else:

@@ -29,7 +29,8 @@ from neobot_app.bootstrap import (
 )
 from neobot_app.bootstrap._standby_runtime import STOP_TIMEOUT_SECONDS, StandbyController
 from neobot_app.config.loader.manager import ConfigLoadError
-from neobot_app.core import APP_VERSION
+from neobot_app.core import APP_VERSION, DATA_DIR
+from neobot_app.runtime.instance_lease import InstanceAlreadyRunning, InstanceLease
 from neobot_app.runtime.application import ConnectionTimeoutError
 from neobot_app.utils.http import sanitize_no_proxy_environment
 from neobot_app.cli_parts.doctor import cmd_doctor, cmd_install_browser
@@ -39,6 +40,11 @@ from neobot_app.cli_parts.sandbox import cmd_sandbox_clean
 
 
 async def run() -> bool:
+    with InstanceLease(DATA_DIR):
+        return await _run_instance()
+
+
+async def _run_instance() -> bool:
     """运行一轮；只有所有旧运行时与核心清理确认完成，才允许进程重启。"""
     loop = asyncio.get_running_loop()
     state: dict[str, Any] = {"application": None, "stopping": False, "controller": None}
@@ -104,6 +110,15 @@ async def run() -> bool:
         on_onebot_change=controller.set_onebot,
     )
     plugin_runtime = get_cached_core("plugin_runtime")
+    control_server = None
+    from neobot_modloader.runtime import PluginRuntime
+
+    if isinstance(plugin_runtime, PluginRuntime):
+        from neobot_app.runtime.local_control import LocalControlServer
+
+        control_server = LocalControlServer(
+            plugin_runtime, data_dir=DATA_DIR, version=APP_VERSION, request_stop=request_stop
+        )
 
     async def startup() -> None:
         try:
@@ -120,8 +135,10 @@ async def run() -> bool:
         except Exception as exc:
             standby_service.record_failure(f"启动失败：{type(exc).__name__}: {exc}")
 
-    startup_task = asyncio.create_task(startup(), name="neobot-core-startup")
     try:
+        if control_server is not None:
+            await control_server.start()
+        startup_task = asyncio.create_task(startup(), name="neobot-core-startup")
         restart_requested = await run_entry_loop(
             controller=controller,
             standby_service=standby_service,
@@ -130,21 +147,27 @@ async def run() -> bool:
             startup_task=startup_task,
         )
     finally:
-        state["application"] = None
-        if stop_watcher is not None:
-            stop_watcher.cancel()
-            await asyncio.gather(stop_watcher, return_exceptions=True)
-        # Do not rely on asyncio.run's cancellation drain to own core shutdown.
-        # In particular, a timeout is a report, NEVER permission to exec early.
-        if plugin_runtime is not None:
+        try:
+            state["application"] = None
+            if control_server is not None:
+                await control_server.begin_shutdown()
+            if stop_watcher is not None:
+                stop_watcher.cancel()
+                await asyncio.gather(stop_watcher, return_exceptions=True)
+            # Do not rely on asyncio.run's cancellation drain to own core shutdown.
+            # In particular, a timeout is a report, NEVER permission to exec early.
+            if plugin_runtime is not None:
 
-            async def stop_core() -> None:
-                await plugin_runtime.stop_all()
-                registry = getattr(plugin_runtime, "agent_registry", None)
-                if registry is not None:
-                    await registry.close()
+                async def stop_core() -> None:
+                    await plugin_runtime.stop_all()
+                    registry = getattr(plugin_runtime, "agent_registry", None)
+                    if registry is not None:
+                        await registry.close()
 
-            await _drain_shutdown_task(asyncio.create_task(stop_core()), "core plugins")
+                await _drain_shutdown_task(asyncio.create_task(stop_core()), "core plugins")
+        finally:
+            if control_server is not None:
+                await control_server.close()
     # SIGINT/SIGTERM can arrive during the last core cleanup await too.
     return not state["stopping"] and restart_requested
 
@@ -270,6 +293,9 @@ def cmd_run(args: argparse.Namespace) -> None:
     """启动机器人；重启时先回收旧循环，再以原启动参数替换进程。"""
     try:
         restart_requested = asyncio.run(run())
+    except InstanceAlreadyRunning as exc:
+        print(str(exc), file=sys.stderr)
+        sys.exit(1)
     except ConfigLoadError as exc:
         print(f"配置加载失败，无法启动机器人：\n{exc}")
         print("请补充上述缺失的环境变量（或禁用对应功能）后重新启动。")

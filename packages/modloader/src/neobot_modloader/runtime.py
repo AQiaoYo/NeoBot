@@ -178,6 +178,9 @@ class PluginRuntime:
         self._memory_enabled: dict[str, bool] = {}
         self.control = _RuntimePluginControlFacade(self)
         self._hot_reloader = PluginHotReloader(self) if watch else None
+        from neobot_modloader.development import PluginDevelopment
+
+        self.development = PluginDevelopment(self)
 
     def _resolve_enabled_state(self, name: str, default: bool) -> bool:
         store = self._state_store
@@ -504,6 +507,7 @@ class PluginRuntime:
             await self._hot_reloader.start()
 
     async def stop_all(self) -> None:
+        await self.development.close()
         if self._hot_reloader is not None:
             await self._hot_reloader.stop()
         for name in reversed(list(self.manager.names())):
