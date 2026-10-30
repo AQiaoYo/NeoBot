@@ -172,3 +172,4 @@ scripts/flow/_commit_msg.txt
 # Python caches under source parts
 __pycache__/
 *.py[cod]
+app/src/**/parts/__pycache__/

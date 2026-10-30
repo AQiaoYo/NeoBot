@@ -187,6 +187,66 @@ async def test_development_does_not_restart_stopped_or_disabled_plugin(tmp_path:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["stop", "disable", "replace"])
+async def test_http_reload_preserves_concurrent_state_or_generation_change(tmp_path: Path, operation: str) -> None:
+    runtime = make_runtime(tmp_path)
+    entry = make_plugin(tmp_path, "paused")
+    assert (await runtime.load_plugin_path(entry.parent, start=True)).ok
+    original_plugin = runtime.manager.get_plugin("paused")
+    server = LocalControlServer(runtime, data_dir=tmp_path / "data", version="test", request_stop=lambda: None)
+    await server.start()
+    headers = {"Authorization": f"Bearer {json.loads(server.discovery.read_text())['token']}"}
+    cascade = runtime._cascade_stop_dependents
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def hold_first_reload(name, *, reason):
+        result = await cascade(name, reason=reason)
+        if "正在重载" in reason and not entered.is_set():
+            entered.set()
+            await release.wait()
+        return result
+
+    runtime._cascade_stop_dependents = hold_first_reload
+    request = None
+    try:
+        async with aiohttp.ClientSession(headers=headers, trust_env=False) as client:
+            request = asyncio.create_task(client.post(server.url + "/v1/plugins/reload", json={"name": "paused"}))
+            await asyncio.wait_for(entered.wait(), timeout=2)
+            if operation == "stop":
+                assert (await runtime.stop_plugin("paused")).ok
+                assert runtime.manager.get_state("paused") is PluginState.STOPPED
+            elif operation == "disable":
+                assert (await runtime.set_enabled("paused", False)).ok
+                assert runtime.manager.get_record("paused") is None
+            else:
+                entry.write_text(entry.read_text().replace("before", "replacement"))
+                assert (await runtime.reload_plugin_result("paused", auto_install_dependencies=False)).ok
+                assert runtime.manager.get_plugin("paused") is not original_plugin
+            current_record = runtime.manager.get_record("paused")
+            release.set()
+            async with await request as response:
+                assert response.status == 409
+                body = await response.json()
+                assert not body["ok"]
+                assert body["error"]["code"] == "reload_failed"
+            assert runtime.manager.get_record("paused") is current_record
+            if operation == "stop":
+                assert current_record.state is PluginState.STOPPED
+                assert runtime.manager.get_plugin("paused") is original_plugin
+            elif operation == "disable":
+                assert not runtime._resolve_enabled_state("paused", True)
+            else:
+                assert current_record.state is PluginState.RUNNING
+                assert runtime.manager.get_plugin("paused").description == "replacement"
+    finally:
+        release.set()
+        if request is not None:
+            await asyncio.gather(request, return_exceptions=True)
+        await server.close()
+        await runtime.stop_all()
+
+
+@pytest.mark.asyncio
 async def test_development_respects_global_disable_before_importing_author_code(tmp_path: Path) -> None:
     runtime = make_runtime(tmp_path)
     entry = make_plugin(tmp_path, "blocked")

@@ -133,14 +133,18 @@ class LocalControlServer:
             if self._closing:
                 raise DevelopmentError("shutting_down", "宿主正在关闭")
             snapshot = self.runtime.control.get(name)
-            if snapshot is None or snapshot.path is None:
+            record = self.runtime.manager.get_record(name)
+            if snapshot is None or snapshot.path is None or record is None:
                 raise DevelopmentError("plugin_not_found", "插件未加载")
             if not snapshot.enabled or snapshot.state not in {"running", "loaded"}:
                 raise DevelopmentError("plugin_not_running", "插件未运行，请先显式启动")
             if not snapshot.hot_reloadable:
                 raise DevelopmentError("restart_required", "此插件不支持热重载")
             result = await self.runtime.reload_plugin_result(
-                name, start=snapshot.state == "running", auto_install_dependencies=False
+                name,
+                start=snapshot.state == "running",
+                auto_install_dependencies=False,
+                _expected=(record, record.state),
             )
             if not result.ok:
                 raise DevelopmentError("reload_failed", result.error or "插件重载失败")
