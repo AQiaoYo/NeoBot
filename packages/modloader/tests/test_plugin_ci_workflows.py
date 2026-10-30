@@ -106,6 +106,10 @@ def test_host_workflow_runs_the_template_and_real_browser_with_required_aggregat
     assert any("pnpm run verify" in command and "pnpm run build" in command for command in browser_commands)
     assert any("playwright install --with-deps chromium" in command for command in browser_commands)
     assert any("test_plugin_workbench_browser.py -m browser" in command for command in browser_commands)
+    assert any(
+        "test_plugin_hot_reload_browser.py -m browser" in command and "plugin-browser-hot-reload.xml" in command
+        for command in browser_commands
+    )
     assert any("test_plugin_views_api.py -m browser" in command for command in browser_commands)
     assert jobs["verified"]["needs"] == ["template", "sdk", "browser"]
     assert jobs["verified"]["if"] == "always()"
