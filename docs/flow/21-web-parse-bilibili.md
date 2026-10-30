@@ -5,8 +5,8 @@ covers:
   - app/src/neobot_app/audio/
   - app/src/neobot_app/analysis/
   - app/src/neobot_app/bilibili/
-verified_against: 528fe18
-verified_hash: 0549ccb4c274
+verified_against: 8320053
+verified_hash: af0bab440b90
 ---
 
 # 21 网页解析 · 音频 · 本地分析 · 视频抽帧
@@ -41,6 +41,10 @@ flowchart TD
     I -- 是 --> J["写出音频文件 + 返回路径"]
     K["面板请求提示词分析"] --> L["analysis: 本地统计"]
     L --> M["不调模型，直接返回统计结果"]
+    BV["视频抽帧请求"] --> VF["VideoFrameService.frames：独立目录抽帧与拼图"]
+    VF --> VR{"描述与完成标记成功?"}
+    VR -- 是 --> VO["返回本请求 frames/sheets 路径"]
+    VR -- 否/取消 --> VX["真实 writer 结束后只清理本请求"]
 ```
 
 ## 时序

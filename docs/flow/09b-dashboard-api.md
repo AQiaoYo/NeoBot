@@ -11,8 +11,8 @@ covers:
   - app/src/neobot_app/builtin_plugins/dashboard/api_parts/config.py
   - app/src/neobot_app/builtin_plugins/dashboard/api_parts/plugins.py
   - app/src/neobot_app/builtin_plugins/dashboard/api_parts/_common.py
-verified_against: 93d0141
-verified_hash: cbed7aa8b3f1
+verified_against: 8320053
+verified_hash: 399dcb9eaa2c
 ---
 
 # 09b 面板接口面：api.py 的端点分组 · 权限级别 · 错误码语义
