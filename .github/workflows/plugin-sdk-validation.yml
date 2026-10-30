@@ -15,7 +15,7 @@ on:
       - 'app/src/neobot_app/panel*.py'
       - 'app/tests/modules/builtin_plugins/test_plugin_*.py'
       - 'app/tests/modules/builtin_plugins/test_streaming_panel*.py'
-      - 'app/tests/modules/browser/test_plugin_workbench_browser.py'
+      - 'app/tests/modules/browser/test_plugin_*_browser.py'
       - '.github/workflows/plugin-ci.yml'
       - '.github/workflows/plugin-sdk-validation.yml'
       - 'pyproject.toml'
@@ -122,7 +122,7 @@ jobs:
 
       - name: 对合成最终包执行真实浏览器操作
         run: |
-          uv run --no-sync pytest app/tests/modules/browser/test_plugin_workbench_browser.py -m browser --strict-markers --junitxml "${{ runner.temp }}/plugin-browser-tests.xml"
+          uv run --no-sync pytest app/tests/modules/browser/test_plugin_*_browser.py -m browser --strict-markers --junitxml "${{ runner.temp }}/plugin-browser-tests.xml"
           uv run --no-sync pytest app/tests/modules/builtin_plugins/test_plugin_views_api.py -m browser --strict-markers --junitxml "${{ runner.temp }}/plugin-browser-views.xml"
 
       - name: 上传浏览器回归报告
