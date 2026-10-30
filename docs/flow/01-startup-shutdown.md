@@ -14,8 +14,8 @@ covers:
   - app/src/neobot_app/runtime/instance_lease.py
   - app/src/neobot_app/runtime/local_control.py
   - app/src/neobot_app/runtime/connection_readiness.py
-verified_against: d1fee6e
-verified_hash: e79620008b61
+verified_against: 6d95ad1
+verified_hash: 878228d49c1b
 ---
 
 # 01 启动装配 / 停机 / 软重启 / 待机
@@ -154,6 +154,9 @@ sequenceDiagram
     CLI->>LC: close，删除自己的发现文件
     CLI->>CLI: 释放实例租约，再正常退出或 os.execv
 ```
+
+本机显式重载在依赖联动后，于运行时名字锁内复核原记录、状态和启用标志；
+等待期间发生停止、停用或换代时返回 `409 / reload_failed`，不重新启动旧目标。
 
 谁等谁：CLI 等 `controller` 的代际切换，`controller` 等 `app.stop()`（20s 后只是
 报告，仍继续等），`StandbyService` 等 hook（20s / 120s）。**没有一处把超时当成功**。

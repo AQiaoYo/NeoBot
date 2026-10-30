@@ -7,8 +7,8 @@ covers:
   - app/src/neobot_app/reply/
   - app/src/neobot_app/message/
   - packages/adapter/src/neobot_adapter/
-verified_against: d1fee6e
-verified_hash: c2dbd363dc01
+verified_against: 6d95ad1
+verified_hash: ffa096b19069
 ---
 
 # 00 全局视图：进程启动 -> 入站 -> 处理 -> 出站 -> 停机
@@ -65,7 +65,7 @@ flowchart TD
 
     N -.->|provider 异常| NX["ProviderError 上抛<br/>编排层降级, 不入历史"]
     N -.->|调用联网搜索| S1["web_search 三级回退<br/>HTTP -> 浏览器 -> DDG"]
-    LC -.-> PD["当前 PluginRuntime<br/>加载源码 / 选定监听 / 事务重载"]
+    LC -.-> PD["当前 PluginRuntime<br/>加载源码 / 选定监听 / 事务重载<br/>锁内复核状态与代际"]
     E -.->|stop / 待机 / 软重启| R["有界拆除: 停止入口 -> 适配器<br/>-> 后台任务 -> 插件"]
     R --> RP{"进程退出或换进程?"}
     RP -- 仅应用代际切换 --> ZS

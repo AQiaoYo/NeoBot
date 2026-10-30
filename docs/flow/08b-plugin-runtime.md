@@ -3,6 +3,7 @@ flow: 08b-plugin-runtime
 covers:
   - packages/modloader/src/neobot_modloader/runtime.py
   - packages/modloader/src/neobot_modloader/hot_reload.py
+  - app/src/neobot_app/runtime/local_control.py
   - packages/modloader/src/neobot_modloader/development.py
   - packages/modloader/src/neobot_modloader/installer.py
   - packages/modloader/src/neobot_modloader/hooks.py
@@ -29,8 +30,8 @@ covers:
   - scripts/plugin_ecosystem.py
   - scripts/plugin_demo.py
   - scripts/plugin_demo/
-verified_against: d1fee6e
-verified_hash: 7c00970250f4
+verified_against: 6d95ad1
+verified_hash: 6a242654104c
 ---
 
 # 08b 插件运行时：门面动作矩阵 · 热重载回滚 · 安装器 · 钩子总线
@@ -180,6 +181,10 @@ sequenceDiagram
         DV->>HW: 复用全局监测器或 names 过滤的单一监测器
         LC->>DV: status(name) 读取开发选择与监测结果
         DV-->>LC: development 与 reload sequence/status/error
+    end
+    opt 本机显式重载
+        LC->>RT: reload_plugin_result(_expected=原记录和状态)
+        Note over LC,RT: 依赖联动后锁内复核；停止、停用或换代已完成则返回409
     end
     Note over P,RT: 运行期动作（显式与自动触发共用事务）
     P->>RT: control.reload(name)
@@ -602,7 +607,7 @@ flowchart TD
     M --> N{"名字锁内：record / state / enabled 仍匹配？"}
     N -. "手工停止、停用或换代已先完成" .-> N1["ok=False 自动重载已取消；不启动候选"]
     N -- "匹配" --> O["沿用事务：候选试导入 -> 转正；失败清候选并恢复旧代"]
-    O --> P["按拓扑恢复依赖方<br/>记录 reload sequence/status/error 与日志"]
+    O --> P["按拓扑恢复仍有自动恢复意图且启用的依赖方<br/>记录 reload sequence/status/error 与日志"]
     N1 --> C
     P --> C
 ```
@@ -652,6 +657,8 @@ flowchart TD
 全局监听。未开启时，开发入口的 `names` 过滤也在扫描返回后的代际复核中生效，取消选择
 不会被已排队扫描重新拉起。源码加载不等于下载/安装插件，本机控制能力没有安装端点。
 原生页面产物继续使用 Dashboard 的 revision 更新，不引入第二份机器人或另一套生命周期。
+依赖插件被手动停用时撤销自动恢复意图；恢复循环在该插件名字锁内再次核对启用标志，
+不会因前置重载结束而重新启动已经成功停用的插件。
 
 </details>
 
