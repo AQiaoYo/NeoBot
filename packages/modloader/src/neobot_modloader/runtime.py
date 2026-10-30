@@ -830,23 +830,35 @@ class PluginRuntime:
                 for dependent in pending
             ]
         for dependent in ordered:
-            record = self.manager.get_record(dependent)
-            if record is not None and record.state in _READY_STATES and record.error is None:
-                self._auto_disabled.pop(dependent, None)
-                continue
-            if record is not None:
-                outcomes.append(self._operation_result_from_record(dependent, expected_states=set(_READY_STATES)))
-                continue
-            path = self._find_plugin_path(dependent)
-            if path is None:
-                outcomes.append(PluginOperationResult(ok=False, name=dependent, error="依赖插件文件不存在"))
-                continue
-            self.logger.info(f"前置插件 {name} 已就绪，自动恢复依赖插件: {dependent}")
-            outcome = await self.load_plugin_path(path, start=True, auto_install_dependencies=False)
-            if outcome.ok:
-                self._auto_disabled.pop(dependent, None)
-            else:
-                outcomes.append(outcome)
+            try:
+                async with self._named_operation(dependent):
+                    # 拓扑快照建立后仍可能发生手动停用；不得用旧恢复意图覆盖它。
+                    if dependent not in self._auto_disabled:
+                        continue
+                    if not self._resolve_enabled_state(dependent, True):
+                        self._auto_disabled.pop(dependent, None)
+                        continue
+                    record = self.manager.get_record(dependent)
+                    if record is not None and record.state in _READY_STATES and record.error is None:
+                        self._auto_disabled.pop(dependent, None)
+                        continue
+                    if record is not None:
+                        outcomes.append(
+                            self._operation_result_from_record(dependent, expected_states=set(_READY_STATES))
+                        )
+                        continue
+                    path = self._find_plugin_path(dependent)
+                    if path is None:
+                        outcomes.append(PluginOperationResult(ok=False, name=dependent, error="依赖插件文件不存在"))
+                        continue
+                    self.logger.info(f"前置插件 {name} 已就绪，自动恢复依赖插件: {dependent}")
+                    outcome = await self.load_plugin_path(path, start=True, auto_install_dependencies=False)
+                    if outcome.ok:
+                        self._auto_disabled.pop(dependent, None)
+                    else:
+                        outcomes.append(outcome)
+            except OperationBusy as exc:
+                outcomes.append(PluginOperationResult(ok=False, name=dependent, error=str(exc)))
         return outcomes
 
     async def reload_plugin_result(
@@ -1495,6 +1507,7 @@ class PluginRuntime:
                 if not result.ok:
                     return result
             self._persist_enabled_state(name, False)
+            self._auto_disabled.pop(name, None)
             self._loaded_sources.pop(name, None)
             self._loaded_flags.pop(name, None)
             return PluginOperationResult(

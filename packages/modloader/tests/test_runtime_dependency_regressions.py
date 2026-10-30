@@ -190,6 +190,52 @@ async def test_reload_restores_dependent_when_changed_prerequisite_is_not_first(
         await runtime.stop_all()
 
 
+@pytest.mark.parametrize("dependencies", [("other", "base"), ("base", "other")])
+@pytest.mark.parametrize("persistent", [False, True])
+async def test_manual_disable_during_prerequisite_shutdown_cancels_dependent_restore(
+    tmp_path: Path, dependencies: tuple[str, ...], persistent: bool
+) -> None:
+    users = tmp_path / "plugins"
+    make_plugin(users, "other")
+    make_plugin(
+        users,
+        "base",
+        body=(
+            "\nimport asyncio\n"
+            "plugin.entered = asyncio.Event()\n"
+            "plugin.release = asyncio.Event()\n"
+            "@plugin.on_shutdown\n"
+            "async def shutdown(ctx):\n"
+            "    plugin.entered.set()\n"
+            "    await plugin.release.wait()\n"
+        ),
+    )
+    make_plugin(users, "addon", dependencies=dependencies)
+    store = PluginStateStore(tmp_path / "plugin_state.json") if persistent else None
+    runtime = make_runtime(tmp_path, state_store=store)
+    await start_runtime(runtime)
+    old_base = runtime.manager.get_plugin("base")
+    task = asyncio.create_task(runtime.reload_plugin_result("base", auto_install_dependencies=False))
+    try:
+        await asyncio.wait_for(old_base.entered.wait(), timeout=2)
+        assert runtime.manager.get_record("addon") is None
+        assert (await runtime.set_enabled("addon", False)).ok
+        assert not runtime._resolve_enabled_state("addon", True)
+        old_base.release.set()
+        assert (await asyncio.wait_for(task, timeout=2)).ok
+        assert runtime.manager.get_state("base") is PluginState.RUNNING
+        assert runtime.manager.get_record("addon") is None
+        assert not runtime._resolve_enabled_state("addon", True)
+        assert not runtime.dependency_report("addon")["auto_disabled"]
+    finally:
+        old_base.release.set()
+        await asyncio.gather(task, return_exceptions=True)
+        current = runtime.manager.get_plugin("base")
+        if current is not None:
+            current.release.set()
+        await runtime.stop_all()
+
+
 async def test_reload_restores_complete_transitive_dependency_tree(tmp_path: Path) -> None:
     users = tmp_path / "plugins"
     make_plugin(users, "base")
