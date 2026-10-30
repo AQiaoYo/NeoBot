@@ -99,9 +99,67 @@ describe('插件页面中的独立页面分组', () => {
     test.rerender(<PluginSettingsViews {...value} suspended />);
     expect(screen.getByTitle('订阅设置')).toBe(frame);
     expect(vi.mocked(PluginViewFrame).mock.lastCall![0].suspended).toBe(true);
-    test.rerender(<PluginSettingsViews {...value} />);
+    await act(async () => test.rerender(<PluginSettingsViews {...value} />));
     expect(screen.getByTitle('订阅设置')).toBe(frame);
     expect(vi.mocked(PluginViewFrame).mock.lastCall![0].suspended).toBe(false);
+  });
+
+  it('相同资源的轮询保留 iframe 与输入窗口', async () => {
+    render(<PluginSettingsViews {...props()} />);
+    const frame = await screen.findByTitle('订阅设置');
+    act(() => setQueryData(QK.pluginViews('demo'), [{ ...view }]));
+    expect(screen.getByTitle('订阅设置')).toBe(frame);
+  });
+
+  it('暂停期间收到资源更新与页面增删，恢复后才应用最新集合', async () => {
+    const value = props();
+    const test = render(<PluginSettingsViews {...value} />);
+    const original = await screen.findByTitle('订阅设置');
+    test.rerender(<PluginSettingsViews {...value} suspended />);
+    const next = { ...view, url: '/plugins-ui/demo/editor/?revision=two' };
+    act(() => setQueryData(QK.pluginViews('demo'), [next]));
+    expect(screen.getByTitle('订阅设置')).toBe(original);
+    expect(original).toHaveAttribute('src', view.url);
+    const latest = { ...next, url: '/plugins-ui/demo/editor/?revision=three' };
+    act(() => setQueryData(QK.pluginViews('demo'), [latest]));
+    vi.mocked(api.pluginViews).mockResolvedValue({
+      ok: true,
+      status: 200,
+      error: null,
+      data: { ok: true, items: [latest] },
+    });
+    await act(async () => test.rerender(<PluginSettingsViews {...value} />));
+    const replaced = screen.getByTitle('订阅设置');
+    expect(replaced).not.toBe(original);
+    expect(replaced).toHaveAttribute('src', latest.url);
+    test.rerender(<PluginSettingsViews {...value} suspended />);
+    act(() => setQueryData(QK.pluginViews('demo'), []));
+    vi.mocked(api.pluginViews).mockResolvedValue({
+      ok: true,
+      status: 200,
+      error: null,
+      data: { ok: true, items: [] },
+    });
+    expect(screen.getByTitle('订阅设置')).toBe(replaced);
+    await act(async () => test.rerender(<PluginSettingsViews {...value} />));
+    expect(screen.queryByTitle('订阅设置')).not.toBeInTheDocument();
+  });
+
+  it('页面持有焦点时延后热重载，焦点返回宿主后应用更新', async () => {
+    render(
+      <>
+        <button>宿主焦点</button>
+        <PluginSettingsViews {...props()} />
+      </>,
+    );
+    const original = await screen.findByTitle('订阅设置');
+    act(() => original.focus());
+    const next = { ...view, url: '/plugins-ui/demo/editor/?revision=two' };
+    act(() => setQueryData(QK.pluginViews('demo'), [next]));
+    expect(screen.getByTitle('订阅设置')).toBe(original);
+    act(() => screen.getByRole('button', { name: '宿主焦点' }).focus());
+    expect(screen.getByTitle('订阅设置')).not.toBe(original);
+    expect(screen.getByTitle('订阅设置')).toHaveAttribute('src', next.url);
   });
 
   it('读取失败使用 InfoBar 与重试按钮，成功后展示设置分组', async () => {

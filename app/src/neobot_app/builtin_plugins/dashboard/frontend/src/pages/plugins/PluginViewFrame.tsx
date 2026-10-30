@@ -88,9 +88,10 @@ export default function PluginViewFrame(props: FrameProps) {
 
   useEffect(() => {
     let revealFrame: number | undefined;
+    const source = frame.current?.contentWindow ?? null;
     const instance = createPluginViewBridge({
-      source: () => frame.current?.contentWindow ?? null,
-      post: (message) => frame.current?.contentWindow?.postMessage(message, '*'),
+      source: () => source,
+      post: (message) => source?.postMessage(message, '*'),
       contract: () => current.current.surface.contract,
       context,
       demo: () => current.current.demo,
@@ -137,7 +138,7 @@ export default function PluginViewFrame(props: FrameProps) {
       observer.disconnect();
       window.removeEventListener('message', receive);
     };
-  }, [context]);
+  }, [context, props.pluginId, props.view.id, props.view.url]);
 
   useEffect(() => {
     bridge.current?.event('context', context());
@@ -152,6 +153,7 @@ export default function PluginViewFrame(props: FrameProps) {
 
   return (
     <iframe
+      key={`${props.pluginId}:${props.view.id}:${props.view.url}`}
       ref={frame}
       className="plugin-view-frame"
       style={props.layout === 'inline' ? { height: height ?? 420 } : undefined}

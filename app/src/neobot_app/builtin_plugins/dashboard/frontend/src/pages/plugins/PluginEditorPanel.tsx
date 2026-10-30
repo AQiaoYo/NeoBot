@@ -9,6 +9,7 @@ import SchemaForm from '../../components/SchemaForm';
 import Modal from '../../components/Modal';
 import TomlEditor from '../../components/TomlEditor';
 import type { PluginEditorPanelProps } from './pluginProps';
+import type { PluginSurfaceContract } from '../../api/types';
 import { confirmAction } from '../../components/ui/ConfirmDialog';
 import { useAuthGate } from '../../auth/AuthContext';
 import PluginManualEntry from './PluginManualEntry';
@@ -66,7 +67,15 @@ export default function PluginEditorPanel(props: PluginEditorPanelProps) {
   const canReload = !sessionReadOnly && reloadAvailable;
   const canManage = !sessionReadOnly && manageAvailable;
   const surface = usePluginSurface(selectedPresent ? selectedId : '');
-  const hasPluginPage = !!surface.data?.contract?.views?.length && selectedPresent;
+  const [retainedPage, setRetainedPage] = useState('');
+  const lastPageContract = useRef<{ pluginId: string; contract: PluginSurfaceContract }>();
+  const declaredPages = !!surface.data?.contract?.views?.length;
+  if (surface.data?.contract && (declaredPages || lastPageContract.current?.pluginId === selectedId))
+    lastPageContract.current = { pluginId: selectedId, contract: surface.data.contract };
+  const pageContract =
+    lastPageContract.current?.pluginId === selectedId ? lastPageContract.current.contract : null;
+  // 已展示页面的删除由子组件在安全边界应用，不能因契约轮询先销毁窗口。
+  const hasPluginPage = (declaredPages || retainedPage === selectedId) && selectedPresent;
   const pluginPage = hasPluginPage && pagePlugin === selectedId;
   const canWriteSettings = sessionCanManage === true && permissions.manage_enabled && selectedPresent;
   const { run, configAccess } = usePluginSettingsAccess({
@@ -461,14 +470,21 @@ export default function PluginEditorPanel(props: PluginEditorPanelProps) {
                 aria-labelledby="plugin-page-tab"
                 hidden={!pluginPage}
               >
-                {surface.data?.contract && hasPluginPage && (
+                {pageContract && (
                   <PluginSettingsViews
                     pluginId={selectedId}
+                    declared={declaredPages}
+                    onViewsApplied={(hasViews) =>
+                      setRetainedPage((current) =>
+                        hasViews ? selectedId : current === selectedId ? '' : current,
+                      )
+                    }
                     surface={{
-                      ...surface.data,
-                      contract: surface.data.contract,
-                      available: surface.data.available && selected.status === 'loaded',
-                      permissions: surface.data.permissions.filter(
+                      contract: pageContract,
+                      available: declaredPages && !!surface.data?.available && selected.status === 'loaded',
+                      state: surface.data?.state ?? 'unavailable',
+                      source: surface.data?.source ?? 'none',
+                      permissions: (surface.data?.permissions ?? []).filter(
                         (permission) => permission === 'read' || canWriteSettings,
                       ),
                     }}

@@ -25,6 +25,7 @@ from neobot_modloader.dependencies import PythonDependencyInstaller
 from neobot_modloader.generation import UNSET, RuntimeGeneration
 from neobot_modloader.hooks import PluginHookBus
 from neobot_modloader.host import TrackedPluginHostFacade
+from neobot_modloader.hot_reload import PluginHotReloader
 from neobot_modloader.installer import PluginInstaller, PluginUpdateCheck
 from neobot_modloader.loading.manifest import (
     read_dependencies,
@@ -99,6 +100,7 @@ class PluginRuntime:
         installer: PluginInstaller | None = None,
         user_plugins_enabled: bool = True,
         host_version: str | None = None,
+        watch: bool = False,
     ) -> None:
         self.plugin_dir = plugin_dir.resolve()
         self.data_dir = data_dir.resolve()
@@ -175,6 +177,7 @@ class PluginRuntime:
         #: 没有它，set_enabled 会「报告成功但什么都没变」，面板上的启停按钮看起来失灵。
         self._memory_enabled: dict[str, bool] = {}
         self.control = _RuntimePluginControlFacade(self)
+        self._hot_reloader = PluginHotReloader(self) if watch else None
 
     def _resolve_enabled_state(self, name: str, default: bool) -> bool:
         store = self._state_store
@@ -497,8 +500,12 @@ class PluginRuntime:
         for name in list(self.manager.names()):
             async with self._named_operation(name):
                 await self.manager.start_plugin(name)
+        if self._hot_reloader is not None:
+            await self._hot_reloader.start()
 
     async def stop_all(self) -> None:
+        if self._hot_reloader is not None:
+            await self._hot_reloader.stop()
         for name in reversed(list(self.manager.names())):
             async with self._named_operation(name):
                 await self.manager.stop_plugin(name)
@@ -844,16 +851,31 @@ class PluginRuntime:
         *,
         start: bool = True,
         auto_install_dependencies: bool | None = None,
+        _expected: tuple[Any, PluginState] | None = None,
     ) -> PluginOperationResult:
         # 重载会短暂摘掉插件；失败但旧代仍就绪时，也必须恢复已经停掉的依赖方。
         try:
             await self._cascade_stop_dependents(name, reason=f"前置插件正在重载: {name}")
             async with self._named_operation(name):
-                result = await self._reload_plugin_result_locked(
-                    name,
-                    start=start,
-                    auto_install_dependencies=auto_install_dependencies,
-                )
+                record = self.manager.get_record(name)
+                if _expected is not None and (
+                    record is not _expected[0]
+                    or record.state is not _expected[1]
+                    or not self._resolve_enabled_state(name, True)
+                ):
+                    result = PluginOperationResult(
+                        ok=False,
+                        name=name,
+                        state=self._state_value(name),
+                        error="自动重载已取消：插件状态或代际已改变",
+                        path=self._loaded_paths.get(name),
+                    )
+                else:
+                    result = await self._reload_plugin_result_locked(
+                        name,
+                        start=start,
+                        auto_install_dependencies=auto_install_dependencies,
+                    )
         except asyncio.CancelledError:
             record = self.manager.get_record(name)
             if record is not None and record.state in _READY_STATES and record.error is None:

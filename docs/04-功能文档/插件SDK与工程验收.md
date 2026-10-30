@@ -42,6 +42,14 @@ uv run --no-sync python scripts/plugin_demo.py --sample ../hello_plugin --port 1
 
 找不到 SDK 或 pytest 时，先完成环境同步并使用上述 `uv run --no-sync`；从插件目录运行则显式加 `--project <NeoBot目录>`，不要误用另一份 Python 环境。契约过期时重新导出并查看差异；教程目标失效时按报错字段更新引用；其他失败查看报告的 `errors` 和对应阶段日志，修正后重跑，不跳过失败用例。
 
+## 开发时自动热重载
+
+宿主配置的 `[plugins]` 中设置 `watch = true` 并重启后，保存已加载插件的 Python 源码、清单或静态契约会自动触发事务重载。连续保存合并处理，候选导入失败保留旧版本，激活失败沿用运行时回滚；修好后再次保存即可重试。监听不会自动启用已停止的插件或安装 Python 依赖，也不会直接执行存储维护升级。
+
+插件页面 HTML、JS、CSS 的内容版本独立更新，不要求重载后端。已打开面板每 2 秒同步配置表单、能力契约和页面版本；表单草稿、正在输入的焦点与保存操作会延后刷新，隐藏或聚焦的插件页面保留当前会话，恢复后再替换最新页面。页面替换清理旧消息桥，避免旧请求回包进入新实例。
+
+普通插件仍可用面板“重载”按钮；声明 `hot_reload = false` 的插件需重启。自动监听默认关闭，适用于开发目录，完整范围和边界见 [插件开发](../07-插件开发.md)。设计参考 [Koishi 插件生命周期](https://koishi.chat/zh-CN/guide/plugin/lifecycle) 与 [官方 HMR 实现](https://github.com/koishijs/koishi/blob/master/plugins/hmr/src/index.ts)。
+
 ## SDK 契约与说明书素材
 
 `Plugin` 提供 `action/resource/guide/view`，也可通过 `plugin.surface` 访问同一入口。动作处理器接收校验后的输入与 `ActionInvocation`；同步和异步函数均可。可明确向使用者公开的业务失败使用 `ActionError`；未知异常仍只返回固定错误，不公开输入或异常正文。

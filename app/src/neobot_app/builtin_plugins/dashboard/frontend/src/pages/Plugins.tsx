@@ -260,6 +260,7 @@ export default function Plugins() {
     }
   };
   useAutoRefresh(syncConfig, {
+    interval: POLL.pluginSurface,
     enabled: !!selectedId && !dirty && !editingSession && !operation && !loading,
   });
 

@@ -13,6 +13,6 @@ export function usePluginSurface(pluginId: string) {
         throw new Error(response.error || '插件能力读取失败');
       return response.data;
     },
-    { interval: POLL.plugins, refetchOnMount: true, enabled: !!pluginId },
+    { interval: POLL.pluginSurface, refetchOnMount: true, enabled: !!pluginId },
   );
 }

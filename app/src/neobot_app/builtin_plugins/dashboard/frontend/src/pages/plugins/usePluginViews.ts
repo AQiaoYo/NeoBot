@@ -15,7 +15,7 @@ export function usePluginViews(pluginId: string, declared: boolean, enabled = tr
       });
     },
     {
-      interval: POLL.plugins,
+      interval: POLL.pluginSurface,
       refetchOnMount: true,
       deps: [declared],
       enabled: declared && enabled,

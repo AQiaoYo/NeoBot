@@ -248,6 +248,32 @@ describe('内部页面桥接与说明书演示隔离', () => {
     expect(props.run).toHaveBeenCalledTimes(1);
   });
 
+  it('资源更新无需父组件 key 也会隔离新会话与旧异步响应', async () => {
+    const test = await renderLive();
+    let finish!: (value: unknown) => void;
+    test.props.run.mockReturnValueOnce(
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    );
+    test.bridge.send('action', { id: 'save', values: {} });
+    await waitFor(() => expect(test.props.run).toHaveBeenCalledTimes(1));
+    const changed = { ...view, url: '/plugins-ui/demo/editor/?revision=two' };
+    test.rerender(<PluginViewFrame {...test.props} view={changed} />);
+    const fresh = screen.getByTitle<HTMLIFrameElement>('插件设置');
+    expect(fresh).not.toBe(test.frame);
+    const bridge = await connect(fresh);
+    test.bridge.send('action', { id: 'save', values: {} });
+    await act(async () => finish({ ok: true, result: { saved: 'old' } }));
+    expect(test.props.run).toHaveBeenCalledTimes(1);
+    expect(test.bridge.messages.filter((message) => message.kind === 'response')).toHaveLength(1);
+    expect(bridge.messages.filter((message) => message.kind === 'response')).toHaveLength(1);
+    expect(await bridge.request('action', { id: 'save', values: {} })).toMatchObject({
+      result: { saved: 'live' },
+    });
+    expect(test.props.run).toHaveBeenCalledTimes(2);
+  });
+
   it('演示只读合成结果与配置，不能执行真实动作或保存真实配置', async () => {
     const run = vi.fn();
     render(

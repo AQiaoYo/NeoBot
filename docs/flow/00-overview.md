@@ -7,8 +7,8 @@ covers:
   - app/src/neobot_app/reply/
   - app/src/neobot_app/message/
   - packages/adapter/src/neobot_adapter/
-verified_against: fb703fe5
-verified_hash: 266c38667d94
+verified_against: 89ec896
+verified_hash: 00e88fb49542
 ---
 
 # 00 全局视图：进程启动 -> 入站 -> 处理 -> 出站 -> 停机
@@ -113,7 +113,7 @@ flowchart LR
     J --> K["adapter + HotReloadRegistry(AdapterSupervisor)"]
     K --> L["memory / vision_provider / main provider"]
     L --> M["emoji / file_server / 运行时组件 / sandbox"]
-    M --> N["commands / skills / 插件宿主"]
+    M --> N["commands / skills / 插件宿主<br/>PluginRuntime(watch=config.plugins.watch)"]
     N --> O["ReplyOrchestrator + 各 manager.set_orchestrator"]
     O --> P["build_pipelines_and_app -> NeoBotApplication"]
 \`\`\`
@@ -136,7 +136,7 @@ flowchart TD
     S3 --> S4["adapter.start 反向 WS 开始监听"]
     S4 --> S5["connection_probe.observe 最多 30s, 永不抛"]
     S5 --> S6["bot_detector.refresh"]
-    S6 --> S7["plugin.start_all"]
+    S6 --> S7["plugin.start_all<br/>启动插件后按 plugins.watch 启动源码监测"]
     S7 --> S8["chat_stream.initialize"]
     S8 --> S9["emoji.start"]
     S9 --> S10["background_coros: sleep ticker / help 预渲染 / 沙箱维护"]
@@ -150,6 +150,10 @@ flowchart TD
 
 注意 \`started.append(...)\` 的顺序就是回滚顺序的逆序：回滚只释放**已经成功启动**的组件，
 半启动状态不会留在内存里（\`runtime/application.py:138\`）。
+
+`bootstrap/_skills.py:177` 把 `[plugins].watch`（默认 `false`）传入插件运行时；
+`start_all` 在插件启动后建立源码指纹基线并启动后台监测。文件扫描在线程执行，
+源码变化由现有事务重载处理，不改变消息入口与适配器顺序；详见 `08b-plugin-runtime.md`。
 </details>
 
 <details>
@@ -234,7 +238,7 @@ flowchart TD
     G --> H["event_ingress.stop 关入口"]
     H --> I["reply_orchestrator.shutdown 取消在途回复"]
     I --> J["flush_pending_summaries 落摘要"]
-    J --> K["plugin stop_all -> adapter stop(12s 先报错, 再 shield 等)"]
+    J --> K["plugin.stop_all：先等源码监测与在途重载结束<br/>再停插件 -> adapter.stop（12s 先报错，再 shield 等）"]
     K --> L["tts / file_server / engine.dispose"]
     L --> M{"restart_requested ?"}
     M -- 是 --> N["cli.cmd_run: os.execv 原地换进程"]

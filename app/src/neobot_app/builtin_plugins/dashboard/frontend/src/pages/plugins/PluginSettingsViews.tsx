@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { PluginView } from '../../api/types';
 import Button from '../../components/ui/Button';
 import { PanelSkeleton } from '../../components/ui/PageSkeleton';
@@ -13,6 +13,8 @@ interface Props {
   run: RunPluginAction;
   configAccess: PluginViewConfigAccess;
   suspended: boolean;
+  declared?: boolean;
+  onViewsApplied?: (hasViews: boolean) => void;
   onNavigate: (target: string) => void;
 }
 
@@ -37,7 +39,7 @@ function SettingsView({
             view={view}
             mode="live"
             layout="inline"
-            suspended={props.suspended}
+            suspended={props.suspended || !props.surface.available}
           />
         </div>
       )}
@@ -46,22 +48,45 @@ function SettingsView({
 }
 
 export default function PluginSettingsViews(props: Props) {
-  const declared = !!props.surface.contract.views?.length;
-  const query = usePluginViews(props.pluginId, declared);
+  const declared = props.declared ?? !!props.surface.contract.views?.length;
+  const query = usePluginViews(props.pluginId, declared, !props.suspended);
+  const root = useRef<HTMLDivElement>(null);
+  const [applied, setApplied] = useState<{
+    pluginId: string;
+    views: Array<PluginView & { url: string }>;
+  }>({ pluginId: props.pluginId, views: [] });
+  const latest = useRef({ props, declared, data: query.data });
+  latest.current = { props, declared, data: query.data };
+  useEffect(() => {
+    const apply = () => {
+      const { props: current, declared, data } = latest.current;
+      // 隐藏页、说明书与配置编辑暂停期间保留原窗口；页面内正在输入时同样延后。
+      // 每轮读取及返回宿主焦点后重新检查，只应用最新资源集合。
+      if (current.suspended || root.current?.contains(document.activeElement)) return;
+      if (declared && !data) return;
+      const views = declared ? (data ?? []) : [];
+      setApplied({ pluginId: current.pluginId, views });
+      current.onViewsApplied?.(!!views.length);
+    };
+    apply();
+    document.addEventListener('focusin', apply);
+    return () => document.removeEventListener('focusin', apply);
+  }, [props.pluginId, props.suspended, declared, query.data]);
+  const views = applied.pluginId === props.pluginId ? applied.views : [];
   useQueryErrorNotice(query.error, query.updatedAt, '插件页面读取失败', declared);
 
-  if (!declared || (!query.loading && !query.error && !query.data?.length)) return null;
+  if (!views.length && (!declared || (!query.loading && !query.error))) return null;
   return (
-    <div className="plugin-settings-views">
-      {query.loading && !query.data ? (
+    <div className="plugin-settings-views" ref={root}>
+      {query.loading && !views.length ? (
         <PanelSkeleton label="正在读取插件页面…" rows={2} />
       ) : (
-        query.data?.map((view) => (
+        views.map((view) => (
           <SettingsView
             key={`${props.pluginId}:${view.id}`}
             {...props}
             view={view}
-            showHeading={(query.data?.length ?? 0) > 1}
+            showHeading={views.length > 1}
           />
         ))
       )}

@@ -439,7 +439,7 @@ describe('Plugins 页面', () => {
       render(<Plugins />);
       await act(async () => {});
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(POLL.editor);
+        await vi.advanceTimersByTimeAsync(POLL.pluginSurface);
       });
       expect(api.pluginConfig).toHaveBeenCalledTimes(2);
       expect(screen.getByDisplayValue('文件新配置')).toBeInTheDocument();
@@ -451,7 +451,7 @@ describe('Plugins 页面', () => {
           }),
       );
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(POLL.editor);
+        await vi.advanceTimersByTimeAsync(POLL.pluginSurface);
       });
       fireEvent.change(screen.getByDisplayValue('文件新配置'), { target: { value: '请求途中键入' } });
       await act(async () => {

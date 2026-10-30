@@ -2,6 +2,7 @@
 flow: 08b-plugin-runtime
 covers:
   - packages/modloader/src/neobot_modloader/runtime.py
+  - packages/modloader/src/neobot_modloader/hot_reload.py
   - packages/modloader/src/neobot_modloader/installer.py
   - packages/modloader/src/neobot_modloader/hooks.py
   - packages/modloader/src/neobot_modloader/management.py
@@ -27,8 +28,8 @@ covers:
   - scripts/plugin_ecosystem.py
   - scripts/plugin_demo.py
   - scripts/plugin_demo/
-verified_against: fb703fe5
-verified_hash: 137e49e75974
+verified_against: 89ec896
+verified_hash: 15cb5c891065
 ---
 
 # 08b 插件运行时：门面动作矩阵 · 热重载回滚 · 安装器 · 钩子总线
@@ -37,7 +38,8 @@ verified_hash: 137e49e75974
 
 本图覆盖 `packages/modloader` 里**运行时门面与安装/钩子**这一层：
 
-* `runtime.py`（2382 行）的 `PluginRuntime` 门面：加载 / 卸载 / 启停 / 热重载 / 快照 / 依赖报告 / 配置读取，以及并发锁与路径绑定；
+* `runtime.py` 的 `PluginRuntime` 门面：加载 / 卸载 / 启停 / 热重载 / 快照 / 依赖报告 / 配置读取，以及并发锁与路径绑定；
+* `hot_reload.py`：已加载源码的线程指纹扫描、稳定保存防抖、运行代复核与监测任务收尾；
 * `installer.py`：GitHub 来源解析、代理、下载与解压防线、安装 / 更新 / 卸载、备份目录、更新检查；
 * `hooks.py`：`PluginHookBus` 的订阅 / 退订 / 优先级 / 超时 / 阻断，`dispatch_envelope` 信封派发与输出捕获；
 * `management.py`：`PluginOperationResult` / `PluginSnapshot` / `PluginControlFacade`（面板与插件看到的窄门面）；
@@ -93,7 +95,7 @@ Windows 新建工程采用验证后独占创建与复制，避免只读文件句
 
 **spec 与现实的差异**（都在图里保留现状）：
 
-* 全仓**没有文件监听**：`reload` / `reload_all` 只能由面板或插件自身显式触发；
+* `[plugins].watch` 默认 `false`，开启并重启后，每 1s 扫描已就绪且支持热重载的插件，源码指纹稳定至少 300ms 后调用现有 `reload_plugin_result`；面板与插件自身仍可显式重载；
 * `reload_all()` 在 `app/` 与 `packages/` 的生产代码里**零调用点**（只有单测），面板也没有「全部重载」按钮；
 * 面板的「检查更新 / 更新」与「安装」走**两条不同的路**：前者直连 `installer.update`，后者走 `runtime.install_plugin`；
 * 卸载的备份是「先 `copytree` 再 `move`」，`move` 落进刚建好的备份目录 → 实际代码在 `.plugin-backups/<name>-<时间戳>/<name>/`（替换安装的备份是平铺的，两者不一致，已在本机实测）。
@@ -111,10 +113,10 @@ flowchart TD
     E -- "全部通过" --> F["_register / runtime.py:2114：配置合并 + 校验 + 建 RuntimePluginContext"]
     F --> G["manager.register：写记录 + 名字锁永久保留"]
     G --> H["load_registered / runtime.py:517 -> on_load -> LOADED"]
-    H --> I["start_all / runtime.py:522 -> on_start -> RUNNING"]
-    I --> J{"运行期入口（没有文件监听）"}
+    H --> I["start_all / runtime.py:499：on_start -> RUNNING<br/>watch=True 再启动源码监测"]
+    I --> J{"运行期入口"}
     J -- "面板或插件调 control.set_enabled" --> K["set_enabled / runtime.py:1457"]
-    J -- "control.reload" --> L["reload_plugin_result / runtime.py:854"]
+    J -- "control.reload 或源码保存稳定" --> L["reload_plugin_result / runtime.py:848"]
     J -- "control.unload / force_unload" --> M["unload_plugin / runtime.py:601"]
     J -- "control.install / uninstall / check_updates" --> N["安装器通道 / runtime.py:1490 :1548 :1576"]
     K --> O["先卸载 -> _persist_enabled_state -> plugin_state.json"]
@@ -130,7 +132,7 @@ flowchart TD
     U --> T
 ```
 
-主图只画主干：每个动作的前置判据与失败语义在下面 10 个折叠块里。`PluginOperationResult` 是唯一的失败载体，没有动作会向调用方抛业务异常（`reload_plugin` 这个 bool 包装器例外，见细节 2）。
+主图只画主干：每个动作的前置判据与失败语义在下面 11 个折叠块里。`PluginOperationResult` 是唯一的失败载体，没有动作会向调用方抛业务异常（`reload_plugin` 这个 bool 包装器例外，见细节 2）。
 
 ## 时序
 
@@ -140,6 +142,7 @@ sequenceDiagram
     participant P as 面板或插件自身
     participant GW as EventGateway
     participant RT as PluginRuntime
+    participant HW as PluginHotReloader
     participant MG as DefaultPluginManager
     participant LD as FilesystemPluginLoader
     participant IN as PluginInstaller
@@ -156,7 +159,12 @@ sequenceDiagram
     RT->>MG: start_all() -> on_start
     MG->>PL: on_start()
 
-    Note over P,RT: 运行期动作（无文件监听，只能显式触发）
+    opt plugins.watch=True
+        RT->>HW: start_all 末尾 await start() 建立指纹基线
+        HW->>HW: 每 1s 在线程扫描，稳定至少 300ms
+        HW->>RT: reload_plugin_result(_expected, auto_install_dependencies=False)
+    end
+    Note over P,RT: 运行期动作（显式与自动触发共用事务）
     P->>RT: control.reload(name)
     RT->>MG: _cascade_stop_dependents 先停依赖方（不致命）
     RT->>LD: load_one：新 gN 命名空间 + 删 __pycache__
@@ -177,6 +185,8 @@ sequenceDiagram
     Note over GW,HB: 事件分发（每条入站事件）
     GW->>HB: dispatch(ctx) / runtime/gateway.py:91
     HB->>PL: 钩子按 priority 降序逐个 await（单个超时或异常不致命）
+    RT->>HW: stop_all 首先 await stop()，等待在途重载/回滚
+    RT->>MG: 再逆序 stop_plugin(name)
 ```
 
 三条「不致命」的线：**单个钩子异常**只跳过它自己；**依赖未满足**是自动禁用不是报错；**热重载失败**必须回滚到旧代（回滚也失败才在文本里加「旧版本回滚失败」）。
@@ -545,10 +555,62 @@ flowchart TD
 
 </details>
 
+<details>
+### 源码自动热重载：线程指纹扫描、300ms 防抖与停止优先
+
+```mermaid
+flowchart TD
+    A["PluginRuntime(watch=True) 创建 PluginHotReloader"] --> B["start_all：先启动全部插件，再 start 建指纹基线"]
+    B --> C["_run：每 1s 唤醒一次；poll_once 持有 _poll_lock"]
+    C --> D["_targets：只取 LOADED / RUNNING 且 hot_reload=True 的已加载路径"]
+    D --> E["asyncio.to_thread(_scan)：读取源码与根清单，计算 SHA-256"]
+    E --> F{"回到事件循环：_still_current 且未 stopping？"}
+    F -- "已置 stopping" --> EXIT["结束本轮目标并退出监测任务"]
+    F -- "记录、状态、路径、模块代已改变" --> C
+    F -- "仍是当前代" --> G{"扫描得到 OSError？"}
+    G -. "入口短暂删除或不可读" .-> G1["相同错误只告警一次；保留旧代与旧指纹"]
+    G1 --> C
+    G -- "可读" --> H{"已有同一路径的 observation？"}
+    H -- "首次观察" --> H1["建立基线，不重载"]
+    H1 --> C
+    H -- "已有基线" --> I{"指纹与已处理内容相同？"}
+    I -- "相同" --> I1["清 pending，继续观察"]
+    I1 --> C
+    I -- "不同" --> J["新 pending 记录 changed_at；连续不同保存重新计时"]
+    J --> K{"同一 pending 稳定至少 300ms？"}
+    K -- "不足 300ms" --> C
+    K -- "达到阈值" --> L["先记已尝试指纹；同内容失败不重复重载"]
+    L --> M["reload_plugin_result：保留原 RUNNING / LOADED 意图<br/>auto_install_dependencies=False + _expected(record, state)"]
+    M --> N{"名字锁内：record / state / enabled 仍匹配？"}
+    N -. "手工停止、停用或换代已先完成" .-> N1["ok=False 自动重载已取消；不启动候选"]
+    N -- "匹配" --> O["沿用事务：候选试导入 -> 转正；失败清候选并恢复旧代"]
+    O --> P["就绪后按拓扑恢复依赖方；记录成功或失败日志"]
+    N1 --> C
+    P --> C
+```
+
+* `hot_reload.py:_fingerprint` 对单文件读取 `.py`；包内递归读取 `.py`，另读根目录的
+  `plugin.toml` 与 `plugin.contract.json`。路径和内容采用长度前缀编码，文件排序后计算摘要。
+  忽略隐藏文件/目录、符号链接、`__pycache__`、`node_modules`、`venv`、`build`、`dist`、`plugins_data`。
+  静态页面资源由页面 revision 轮询更新，不触发 Python 生命周期。
+* `poll_interval=1.0` 秒，`debounce=0.3` 秒；防抖在后续轮询复核，因此不承诺保存 300ms 后立即完成重载。
+* `_still_current` 在扫描返回后核对 record 身份、状态、路径、模块代及热重载标志；
+  `_expected` 在 runtime 名字锁内再次核对 record、state 和持久化 enabled。已经完成的手工停止优先，
+  自动重载不能把已停止/停用插件重新启动。依赖方仍由既有级联机制暂时停用和恢复。
+* 同一路径在级联恢复期间换了 record / 模块代时保留先前指纹；加载期间再次保存的内容
+  由后续轮询继续发现，不能将它直接覆盖成「新代基线」。一份失败内容只尝试一次，修正后保存再试。
+* `stop_all` 先 `await PluginHotReloader.stop()`：置 stopping，中止后续目标，等待在途扫描、
+  候选激活和回滚完成，再逆序停止插件。等待使用 shield；调用方取消也先等待收尾，再传播取消。
+  不自动发现/启用新插件，不自动安装依赖，也不因入口短暂删除卸载仍工作的旧代。
+
+</details>
+
 ## 关键状态
 
 | 状态 | 谁置位 | 谁清理 | 失败时停在哪 |
 |---|---|---|---|
+| `_hot_reloader._task` / `_stopping` | watch 构造监测器；`start_all` 在插件启动后建基线并起任务 | `stop_all` 先置停止标志并等待任务结束 | 扫描或重载失败记日志；收尾等待候选/回滚完成后才停止插件 |
+| `_observations[name]` 的 fingerprint / pending / changed_at | `poll_once` 在线程扫描返回后更新 | 目标不再就绪时删除；`start` 清空重建基线 | 同内容失败只试一次；级联换代保留同路径基线，不吞后续保存 |
 | `_loaded_modules` / `_loaded_paths` / `_loaded_sources` | `_register` 成功 | `_clear_plugin_tracking`（按值比对，避免清掉并发替换后的新记录） | 清完即返回 `ok=False`，插件不再出现在 `manager.names()` |
 | `_loaded_flags[name] = (hot_reload, config_hot_reload)` | `_register` | **只有 `set_enabled(false)` 会 pop**；`_clear_plugin_tracking` 不碰 | 卸载后重新发现同一插件时，快照显示的是上一次加载时的 flags |
 | `_auto_disabled[name] = (前置, 原因)` | 排序结果、`_dependency_presence_issues`、`_dependency_issues`、`_cascade_stop_dependents` | `_register` 成功、`_cascade_restore_dependents` 成功、`set_enabled(true)` 成功 | 前置一直缺失则保持 unloaded，启动不受影响 |
@@ -565,6 +627,7 @@ flowchart TD
 ## 易错点
 
 * **卸载备份会嵌一层**（本次核对实测）：`_backup` 先建好 `<name>-<stamp>/`，`shutil.move(target, backup_path)` 遇到已存在目录会把插件目录挪进去，所以回滚一个被卸载的插件要搬的是 `.plugin-backups/<name>-<stamp>/<name>`，不是 `backup_path` 本身；替换安装的备份才是平铺的。两条路都不清理备份。
+* **自动重载复用事务与依赖联动**：文件监测不维护第二套生命周期；候选失败恢复旧代，手工停止先完成则名字锁内取消自动重载。关机必须先等待监测任务结束，不能直接 cancel 掉处于回滚中的事务。
 * **`reload_all()` 生产零调用点**：只有 `packages/modloader/tests/test_runtime.py` 在调，面板没有「全部重载」按钮。把它当生效链路写文档是错的。
 * **一次失败的卸载也会注销配置消费者**：`unload_plugin` 在进入名字锁之前就调 `unregister_plugin_config_consumer(name)`，没有回滚。之后面板保存该插件配置会回落成「重载」或「需要重启」。
 * **`_loaded_flags` 不随卸载清理**：`set_enabled(false)` 会显式 pop，`unload_plugin` 走的 `_clear_plugin_tracking` 不会。卸载后改了 `plugin.toml` 的 `hot_reload`，重新发现出的快照仍用旧 flags，直到下一次 `_register`。
