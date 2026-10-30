@@ -3,6 +3,7 @@ flow: 08b-plugin-runtime
 covers:
   - packages/modloader/src/neobot_modloader/runtime.py
   - packages/modloader/src/neobot_modloader/hot_reload.py
+  - packages/modloader/src/neobot_modloader/development.py
   - packages/modloader/src/neobot_modloader/installer.py
   - packages/modloader/src/neobot_modloader/hooks.py
   - packages/modloader/src/neobot_modloader/management.py
@@ -28,8 +29,8 @@ covers:
   - scripts/plugin_ecosystem.py
   - scripts/plugin_demo.py
   - scripts/plugin_demo/
-verified_against: 89ec896
-verified_hash: 15cb5c891065
+verified_against: d1fee6e
+verified_hash: 7c00970250f4
 ---
 
 # 08b 插件运行时：门面动作矩阵 · 热重载回滚 · 安装器 · 钩子总线
@@ -40,6 +41,7 @@ verified_hash: 15cb5c891065
 
 * `runtime.py` 的 `PluginRuntime` 门面：加载 / 卸载 / 启停 / 热重载 / 快照 / 依赖报告 / 配置读取，以及并发锁与路径绑定；
 * `hot_reload.py`：已加载源码的线程指纹扫描、稳定保存防抖、运行代复核与监测任务收尾；
+* `development.py`：同一实例内加载新建插件、选择开发监听、全局禁用/停用/路径校验；
 * `installer.py`：GitHub 来源解析、代理、下载与解压防线、安装 / 更新 / 卸载、备份目录、更新检查；
 * `hooks.py`：`PluginHookBus` 的订阅 / 退订 / 优先级 / 超时 / 阻断，`dispatch_envelope` 信封派发与输出捕获；
 * `management.py`：`PluginOperationResult` / `PluginSnapshot` / `PluginControlFacade`（面板与插件看到的窄门面）；
@@ -117,6 +119,9 @@ flowchart TD
     I --> J{"运行期入口"}
     J -- "面板或插件调 control.set_enabled" --> K["set_enabled / runtime.py:1457"]
     J -- "control.reload 或源码保存稳定" --> L["reload_plugin_result / runtime.py:848"]
+    J -- "本机 /v1/plugins/dev" --> DV["development.set_enabled<br/>静态检查 + 加载新插件 + 选择监听"]
+    DV --> DW["当前实例选定源码监听<br/>后续保存才触发事务重载"]
+    DW -- 保存稳定 --> L
     J -- "control.unload / force_unload" --> M["unload_plugin / runtime.py:601"]
     J -- "control.install / uninstall / check_updates" --> N["安装器通道 / runtime.py:1490 :1548 :1576"]
     K --> O["先卸载 -> _persist_enabled_state -> plugin_state.json"]
@@ -132,7 +137,9 @@ flowchart TD
     U --> T
 ```
 
-主图只画主干：每个动作的前置判据与失败语义在下面 11 个折叠块里。`PluginOperationResult` 是唯一的失败载体，没有动作会向调用方抛业务异常（`reload_plugin` 这个 bool 包装器例外，见细节 2）。
+主图只画主干：每个动作的前置判据与失败语义在下面的折叠块里。运行时门面以
+`PluginOperationResult` 返回失败；新增本机开发入口使用 `DevelopmentError(code, message)`，
+由控制服务转成统一 JSON 错误，不把开发入口的异常与既有 bool 包装器混为一谈。
 
 ## 时序
 
@@ -140,6 +147,8 @@ flowchart TD
 sequenceDiagram
     autonumber
     participant P as 面板或插件自身
+    participant LC as 本机 CLI 控制服务
+    participant DV as PluginDevelopment
     participant GW as EventGateway
     participant RT as PluginRuntime
     participant HW as PluginHotReloader
@@ -164,6 +173,14 @@ sequenceDiagram
         HW->>HW: 每 1s 在线程扫描，稳定至少 300ms
         HW->>RT: reload_plugin_result(_expected, auto_install_dependencies=False)
     end
+    opt 独立 CLI / Textual 选择某个插件开发
+        LC->>DV: set_enabled(name, true)
+        DV->>DV: 先检查全局启用、实例内路径、静态契约与原启停状态
+        DV->>RT: 新建插件 load_plugin_path，禁止自动安装依赖
+        DV->>HW: 复用全局监测器或 names 过滤的单一监测器
+        LC->>DV: status(name) 读取开发选择与监测结果
+        DV-->>LC: development 与 reload sequence/status/error
+    end
     Note over P,RT: 运行期动作（显式与自动触发共用事务）
     P->>RT: control.reload(name)
     RT->>MG: _cascade_stop_dependents 先停依赖方（不致命）
@@ -185,7 +202,8 @@ sequenceDiagram
     Note over GW,HB: 事件分发（每条入站事件）
     GW->>HB: dispatch(ctx) / runtime/gateway.py:91
     HB->>PL: 钩子按 priority 降序逐个 await（单个超时或异常不致命）
-    RT->>HW: stop_all 首先 await stop()，等待在途重载/回滚
+    RT->>DV: stop_all 首先关闭开发选择与自持监测器
+    RT->>HW: 再停止全局监测器，等待在途重载/回滚
     RT->>MG: 再逆序 stop_plugin(name)
 ```
 
@@ -560,9 +578,9 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    A["PluginRuntime(watch=True) 创建 PluginHotReloader"] --> B["start_all：先启动全部插件，再 start 建指纹基线"]
+    A["全局 watch=True 或开发选择 names 集合"] --> B["全局 start_all 或选定插件加载后 start 建指纹基线"]
     B --> C["_run：每 1s 唤醒一次；poll_once 持有 _poll_lock"]
-    C --> D["_targets：只取 LOADED / RUNNING 且 hot_reload=True 的已加载路径"]
+    C --> D["_targets：names 有值时先过滤<br/>只取 LOADED / RUNNING 且 hot_reload=True 的已加载路径"]
     D --> E["asyncio.to_thread(_scan)：读取源码与根清单，计算 SHA-256"]
     E --> F{"回到事件循环：_still_current 且未 stopping？"}
     F -- "已置 stopping" --> EXIT["结束本轮目标并退出监测任务"]
@@ -584,7 +602,7 @@ flowchart TD
     M --> N{"名字锁内：record / state / enabled 仍匹配？"}
     N -. "手工停止、停用或换代已先完成" .-> N1["ok=False 自动重载已取消；不启动候选"]
     N -- "匹配" --> O["沿用事务：候选试导入 -> 转正；失败清候选并恢复旧代"]
-    O --> P["就绪后按拓扑恢复依赖方；记录成功或失败日志"]
+    O --> P["按拓扑恢复依赖方<br/>记录 reload sequence/status/error 与日志"]
     N1 --> C
     P --> C
 ```
@@ -599,9 +617,41 @@ flowchart TD
   自动重载不能把已停止/停用插件重新启动。依赖方仍由既有级联机制暂时停用和恢复。
 * 同一路径在级联恢复期间换了 record / 模块代时保留先前指纹；加载期间再次保存的内容
   由后续轮询继续发现，不能将它直接覆盖成「新代基线」。一份失败内容只尝试一次，修正后保存再试。
-* `stop_all` 先 `await PluginHotReloader.stop()`：置 stopping，中止后续目标，等待在途扫描、
+* `stop_all` 先关闭开发选择自持的监测器，再 `await` 全局 `PluginHotReloader.stop()`：置 stopping，中止后续目标，等待在途扫描、
   候选激活和回滚完成，再逆序停止插件。等待使用 shield；调用方取消也先等待收尾，再传播取消。
   不自动发现/启用新插件，不自动安装依赖，也不因入口短暂删除卸载仍工作的旧代。
+
+</details>
+
+<details>
+### 同实例插件开发：源码加载与选定监听，不经过插件安装器
+
+```mermaid
+flowchart TD
+    C["Textual / CLI: POST /v1/plugins/dev"] --> G["本机服务: Bearer + Host + Origin + JSON 守卫"]
+    G --> S{"enabled 为真?"}
+    S -- 否 --> OFF["移除该 names 选择<br/>无选择时停止自持监测器，不停插件"]
+    S -- 是 --> EN{"全局第三方插件启用?"}
+    EN -- 否 --> ERR["DevelopmentError -> schema_version=1 JSON 错误"]
+    EN -- 是 --> P{"实例插件直接子目录<br/>且非符号链接?"}
+    P -- 否 --> ERR
+    P -- 是 --> CK["线程执行 SDK 静态检查，不导入作者代码"]
+    CK --> ST{"静态与清单名有效<br/>且未停用、未停止、无异目录同名?"}
+    ST -- 否 --> ERR
+    ST -- 是 --> L{"是否首次加载?"}
+    L -- 是 --> LOAD["当前 PluginRuntime.load_plugin_path<br/>auto_install_dependencies=False"]
+    LOAD --> HOT{"加载成功且支持热重载?"}
+    L -- 否 --> HOT
+    HOT -- 否 --> ERR
+    HOT -- 是 --> W["加入 names<br/>复用全局监测器或仅监听选定插件"]
+    W --> B["建立基线并开始扫描<br/>源码保存沿用现有事务重载"]
+    B --> STATUS["status 返回 development 与 reload 结果<br/>仍是原宿主 PID"]
+```
+
+全局 `[plugins].watch` 已开启时复用原监测器；关闭单个开发选择不会撤销用户显式开启的
+全局监听。未开启时，开发入口的 `names` 过滤也在扫描返回后的代际复核中生效，取消选择
+不会被已排队扫描重新拉起。源码加载不等于下载/安装插件，本机控制能力没有安装端点。
+原生页面产物继续使用 Dashboard 的 revision 更新，不引入第二份机器人或另一套生命周期。
 
 </details>
 
@@ -609,6 +659,8 @@ flowchart TD
 
 | 状态 | 谁置位 | 谁清理 | 失败时停在哪 |
 |---|---|---|---|
+| `development.names` / 自持 watcher | 本机开发入口检查后加入选定插件 | 取消开发选择或 `development.close`；自持 watcher 收尾后停止 | 全局禁用、停用、已停止、异目录同名或静态无效都拒绝，不导入新候选 |
+| `watcher.results[name]` | 自动重载尝试时递增 sequence，写 reloading / succeeded / failed | 下次自动重载更新；状态接口只读副本 | 失败保留旧代；修正后再次保存才重试同一插件 |
 | `_hot_reloader._task` / `_stopping` | watch 构造监测器；`start_all` 在插件启动后建基线并起任务 | `stop_all` 先置停止标志并等待任务结束 | 扫描或重载失败记日志；收尾等待候选/回滚完成后才停止插件 |
 | `_observations[name]` 的 fingerprint / pending / changed_at | `poll_once` 在线程扫描返回后更新 | 目标不再就绪时删除；`start` 清空重建基线 | 同内容失败只试一次；级联换代保留同路径基线，不吞后续保存 |
 | `_loaded_modules` / `_loaded_paths` / `_loaded_sources` | `_register` 成功 | `_clear_plugin_tracking`（按值比对，避免清掉并发替换后的新记录） | 清完即返回 `ok=False`，插件不再出现在 `manager.names()` |
@@ -628,6 +680,8 @@ flowchart TD
 
 * **卸载备份会嵌一层**（本次核对实测）：`_backup` 先建好 `<name>-<stamp>/`，`shutil.move(target, backup_path)` 遇到已存在目录会把插件目录挪进去，所以回滚一个被卸载的插件要搬的是 `.plugin-backups/<name>-<stamp>/<name>`，不是 `backup_path` 本身；替换安装的备份才是平铺的。两条路都不清理备份。
 * **自动重载复用事务与依赖联动**：文件监测不维护第二套生命周期；候选失败恢复旧代，手工停止先完成则名字锁内取消自动重载。关机必须先等待监测任务结束，不能直接 cancel 掉处于回滚中的事务。
+* **创建插件不走插件安装器**：本机开发入口先检查全局第三方插件开关，再静态验收与同实例
+  加载；不能绕过停用/停止状态、自动安装依赖或把同名官方插件当成新建插件选择监听。
 * **`reload_all()` 生产零调用点**：只有 `packages/modloader/tests/test_runtime.py` 在调，面板没有「全部重载」按钮。把它当生效链路写文档是错的。
 * **一次失败的卸载也会注销配置消费者**：`unload_plugin` 在进入名字锁之前就调 `unregister_plugin_config_consumer(name)`，没有回滚。之后面板保存该插件配置会回落成「重载」或「需要重启」。
 * **`_loaded_flags` 不随卸载清理**：`set_enabled(false)` 会显式 pop，`unload_plugin` 走的 `_clear_plugin_tracking` 不会。卸载后改了 `plugin.toml` 的 `hot_reload`，重新发现出的快照仍用旧 flags，直到下一次 `_register`。

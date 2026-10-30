@@ -7,8 +7,8 @@ covers:
   - app/src/neobot_app/reply/
   - app/src/neobot_app/message/
   - packages/adapter/src/neobot_adapter/
-verified_against: 89ec896
-verified_hash: 00e88fb49542
+verified_against: d1fee6e
+verified_hash: c2dbd363dc01
 ---
 
 # 00 全局视图：进程启动 -> 入站 -> 处理 -> 出站 -> 停机
@@ -31,8 +31,12 @@ verified_hash: 00e88fb49542
 
 ```mermaid
 flowchart TD
-    A["进程启动 cli:main"] --> B["bootstrap:create_application<br/>装配: 配置/存储/适配器/插件/模型路由"]
-    B --> Z{装配成功?}
+    A["进程启动 cli:main"] --> AL["run: InstanceLease(DATA_DIR)<br/>装配前取得实例目录租约"]
+    AL -- 已被占用 --> AX["拒绝启动第二个实例"]
+    AL -- 已取得 --> B["bootstrap:create_application<br/>装配: 配置/存储/适配器/插件/模型路由"]
+    B --> LC["本机控制服务 + 发现文件<br/>Bearer / 实例身份 / 随机端口"]
+    LC --> Z{装配成功?}
+    UI["独立 CLI / Textual"] -. 查看状态或选定插件开发 .-> LC
     Z -. 否 .-> ZS["待机模式 StandbyService<br/>起面板修配置, 不碰 QQ"]
     Z -- 是 --> C["NeoBotApplication.run_forever"]
     C --> C1["start(): 文件服务 -> 插件 -> 适配器<br/>-> 事件入口 -> 后台任务"]
@@ -61,7 +65,12 @@ flowchart TD
 
     N -.->|provider 异常| NX["ProviderError 上抛<br/>编排层降级, 不入历史"]
     N -.->|调用联网搜索| S1["web_search 三级回退<br/>HTTP -> 浏览器 -> DDG"]
+    LC -.-> PD["当前 PluginRuntime<br/>加载源码 / 选定监听 / 事务重载"]
     E -.->|stop / 待机 / 软重启| R["有界拆除: 停止入口 -> 适配器<br/>-> 后台任务 -> 插件"]
+    R --> RP{"进程退出或换进程?"}
+    RP -- 仅应用代际切换 --> ZS
+    RP -- 是 --> RC["进程收尾: 状态服务保留只读<br/>等待插件监测与在途事务完成"]
+    RC --> RX["关闭控制服务与发现文件<br/>最后释放实例租约"]
 ```
 
 ## 时序
@@ -70,6 +79,7 @@ flowchart TD
 sequenceDiagram
     autonumber
     participant CLI as cli.main
+    participant LC as 本机控制服务
     participant BS as bootstrap
     participant APP as NeoBotApplication
     participant AD as OneBotAdapter
@@ -77,8 +87,11 @@ sequenceDiagram
     participant EP as EventPipeline
     participant OR as ReplyOrchestrator
 
+    CLI->>CLI: InstanceLease.acquire，重复实例在装配前退出
     CLI->>BS: create_application()
     BS-->>CLI: application（装配完成或待机）
+    CLI->>LC: 启动本机控制接口并原子写发现文件
+    Note over CLI,LC: 独立控制台连接当前 PID，创建插件后只选择该插件的监听
     CLI->>APP: run_forever() -> start()
     APP->>AD: start() 起反向 WS 监听
     Note over APP,AD: 未连上不致命，事件入口照常待命
@@ -88,6 +101,13 @@ sequenceDiagram
     OR-->>Q: 发送结果 + 自身发言入队
     CLI->>APP: request_stop() / request_restart()
     APP->>AD: stop() 有界拆除
+    opt 进程退出或换进程
+        CLI->>LC: begin_shutdown，stopping=true 并拒绝新写入
+        CLI->>CLI: 等待插件清理，控制状态与实例租约仍保留
+        CLI->>LC: close，移除自己的发现文件
+        CLI->>CLI: 释放 InstanceLease 后正常退出或换进程
+    end
+    Note over CLI,LC: 仅应用代际切换时，控制服务与实例租约继续保留
 ```
 
 ## 细节
@@ -251,12 +271,17 @@ flowchart TD
 面板的 `POST /api/admin/shutdown` 走后者 —— 只接受本机来源并要求管理权限，请求立即返回，
 调用方须按进程存活轮询。`cli.py` 的 `stop_watcher` 收到后调用的仍是 `request_stop()`，
 **与 SIGINT/SIGTERM 同一个汇点**，所以上面这条停机顺序不受入口影响。
+
+独立 CLI / Textual 的 `/v1/stop` 同样投递现有 `request_stop()`。`run()` 在装配前取得
+数据目录租约；进程收尾先把本机控制服务切成只读并等完在途写入，核心插件清理完成后
+才关闭服务、清理发现文件并释放租约。关闭控制台本身不会停止机器人。
 </details>
 
 ## 关键状态
 
 | 状态 | 谁置位 | 谁清理 | 失败时停在哪 |
 |---|---|---|---|
+| 实例租约与本机控制状态 | `cli.run` 装配前取租约；核心插件就绪前启动控制服务 | 核心清理结束后关闭服务与发现文件，最后释放租约 | 第二进程拒绝装配；停机中保留 `stopping=true` 只读状态 |
 | 应用已启动 `_started` | `NeoBotApplication.start()` | `stop()` / `dispose()` | 启动异常 -> `_rollback_start` 反向释放，`_started=False` |
 | 关闭事件 `_shutdown_event` | `request_stop()` / `request_restart()` | `start()`（非重启时 clear） | 超时只打印报告，绝不提前 exec 新进程 |
 | 待机模式 `StandbyService` | 配置缺失 `_CONFIG_ERROR` 或面板按钮 | 面板/命令恢复运行 | 待机时只留面板与命令，运行时不启动 |
@@ -296,4 +321,6 @@ flowchart TD
   （见 `fix(12) §4.2`），失败要在编排层显式处理。
 * **自身发言必须入队**：否则管线重组后丢失，表现为重复回复（见 `fix(2)`）。
 * **停机超时是报告，不是许可**：`_drain_shutdown_task` 超时只提示，不会提前启动新进程。
+* **控制台与宿主不是两个实例**：开发命令经本机控制接口调用现有 `PluginRuntime`；
+  停止请求已接收也不表示退出完成，要等控制状态、发现文件与实例租约完成收尾。
 * 本图只画主链路；搜索回退、记忆摘要、插件热重载等分支各自有专图，改动时请落到对应文件。
